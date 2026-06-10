@@ -1,0 +1,70 @@
+name: Build Docker Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      image-name:
+        description: '镜像名, 如 memsearch / faiss'
+        required: true
+        type: string
+      dockerfile:
+        description: 'Dockerfile 路径, 默认 Dockerfile'
+        required: false
+        default: 'Dockerfile'
+        type: string
+      platform:
+        description: '构建平台, 如 linux/amd64,linux/arm64'
+        required: false
+        default: 'linux/amd64'
+        type: string
+      tag:
+        description: '镜像标签, 默认 latest'
+        required: false
+        default: 'latest'
+        type: string
+      push-to-ghcr:
+        description: '推送到 GHCR (true/false)'
+        required: false
+        default: 'true'
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: inputs.push-to-ghcr == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Inject Dockerfile if provided inline
+        run: |
+          if [ ! -f "${{ inputs.dockerfile }}" ]; then
+            echo "❌ Dockerfile not found: ${{ inputs.dockerfile }}"
+            echo "📌 Upload a Dockerfile via gh run or push to the repo first."
+            exit 1
+          fi
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ inputs.dockerfile }}
+          platforms: ${{ inputs.platform }}
+          tags: ghcr.io/${{ github.repository }}/${{ inputs.image-name }}:${{ inputs.tag }}
+          push: ${{ inputs.push-to-ghcr == 'true' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Output image digest
+        run: |
+          echo "✅ Image: ghcr.io/${{ github.repository }}/${{ inputs.image-name }}:${{ inputs.tag }}"

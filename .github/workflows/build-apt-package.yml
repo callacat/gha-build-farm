@@ -1,0 +1,60 @@
+name: Build APT Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: 'apt 包名, 如 python3-faiss / libfaiss-dev'
+        required: true
+        type: string
+      distro:
+        description: '发行版, 如 trixie / bookworm / jammy'
+        required: false
+        default: 'trixie'
+        type: string
+      arch:
+        description: '架构, 如 amd64 / arm64'
+        required: false
+        default: 'amd64'
+        type: string
+      cflags:
+        description: 'DEB_CFLAGS, 如 -mno-avx -mno-avx2'
+        required: false
+        default: '-mno-avx -mno-avx2 -O2'
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup sbuild + debootstram
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sbuild debootstrap devscripts
+
+      - name: Download apt source
+        run: |
+          sudo mk-build-dir --mode=sudo /tmp/pkg
+          cd /tmp/pkg
+          sudo apt-get source ${{ inputs.package }}
+          echo "=== Source downloaded ==="
+          ls -la
+
+      - name: Build with custom CFLAGS
+        env:
+          DEB_CFLAGS: ${{ inputs.cflags }}
+          DEB_CXXFLAGS: ${{ inputs.cflags }}
+        run: |
+          cd /tmp/pkg/${{ inputs.package }}-*/
+          sudo DEB_CFLAGS="${{ inputs.cflags }}" DEB_CXXFLAGS="${{ inputs.cflags }}" \
+            dpkg-buildpackage -b -uc -us 2>&1 | tail -20
+
+      - name: Upload .deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb-${{ inputs.package }}-${{ inputs.distro }}-${{ inputs.cflags || 'generic' }}
+          path: /tmp/pkg/*.deb
+          if-no-files-found: error

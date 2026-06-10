@@ -1,0 +1,72 @@
+name: Build Python Wheel
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: 'PyPI 包名, 如 faiss-cpu / numpy / pandas'
+        required: true
+        type: string
+      version:
+        description: '版本号, 如 1.14.2, 留空则最新版'
+        required: false
+        type: string
+      python-version:
+        description: 'Python 版本, 默认 3.13'
+        required: false
+        default: '3.13'
+        type: string
+      cflags:
+        description: 'CFLAGS, 如 -mno-avx -mno-avx2 -mno-avx512f'
+        required: false
+        default: '-mno-avx -mno-avx2 -mno-avx512f -O2'
+        type: string
+      extra-pip-args:
+        description: '额外 pip 参数, 如 --no-deps'
+        required: false
+        default: ''
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64]  # 可扩展: aarch64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python ${{ inputs.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential cmake swig ninja-build
+          pip install --upgrade pip build wheel setuptools
+
+      - name: Build wheel from source
+        env:
+          CFLAGS: ${{ inputs.cflags }}
+          CXXFLAGS: ${{ inputs.cflags }}
+          FFLAGS: ${{ inputs.cflags }}
+        run: |
+          PKG="${{ inputs.package }}${{ inputs.version && '==' || '' }}${{ inputs.version }}"
+          pip download --no-binary :all: "$PKG" ${{ inputs.extra-pip-args }} -d /tmp/sdist/
+          cd /tmp/sdist/
+          for sdist in *.tar.gz *.zip; do
+            [ -f "$sdist" ] || continue
+            echo "=== Building: $sdist ==="
+            pip wheel --no-build-isolation --no-deps "$sdist" -w /tmp/wheelhouse/
+          done
+
+      - name: Upload wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ inputs.package }}-${{ inputs.version || 'latest' }}-${{ inputs.cflags || 'generic' }}
+          path: /tmp/wheelhouse/*.whl
+          if-no-files-found: error
