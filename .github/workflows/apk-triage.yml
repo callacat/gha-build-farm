@@ -30,20 +30,17 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Install jadx
+      - name: Install tools
         run: |
+          # jadx
           curl -sL "https://github.com/skylot/jadx/releases/download/v1.5.5/jadx-1.5.5.zip" -o /tmp/jadx.zip
           unzip -q /tmp/jadx.zip -d /opt/jadx
           chmod +x /opt/jadx/bin/jadx
-          echo "/opt/jadx/bin" >> $GITHUB_PATH
-
-      - name: Install apktool
-        run: |
+          # apktool
           curl -sL "https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar" -o /opt/apktool.jar
           echo '#!/bin/bash' > /opt/apktool
           echo 'java -jar /opt/apktool.jar "$@"' >> /opt/apktool
           chmod +x /opt/apktool
-          echo "/opt" >> $GITHUB_PATH
 
       - name: Download APK
         run: |
@@ -52,14 +49,14 @@ jobs:
           ls -lh /tmp/${{ inputs.apk_name }}
           file /tmp/${{ inputs.apk_name }}
 
-      - name: jadx decompile
-        run: |
-          mkdir -p /tmp/jadx_out
-          JADX_OPTS="-Xmx6g" /opt/jadx/bin/jadx -d /tmp/jadx_out /tmp/${{ inputs.apk_name }} 2>&1
-
-      - name: apktool decode
+      - name: apktool decode (always runs)
         run: |
           /opt/apktool d /tmp/${{ inputs.apk_name }} -o /tmp/apktool_out -f 2>&1
+
+      - name: jadx decompile (timeout-safe)
+        run: |
+          mkdir -p /tmp/jadx_out
+          JADX_OPTS="-Xmx4g" timeout 600 /opt/jadx/bin/jadx -d /tmp/jadx_out /tmp/${{ inputs.apk_name }} 2>&1 || echo "jadx: timed out or failed (10min limit), continuing with apktool output"
 
       - name: Generate triage summary
         run: |
@@ -68,27 +65,32 @@ jobs:
             echo "APK: ${{ inputs.apk_name }}"
             echo "Size: $(ls -lh /tmp/${{ inputs.apk_name }} | awk '{print $5}')"
             echo ""
-            echo "=== Manifest (package / permissions / components) ==="
-            grep -E 'package=|android:name="|android:exported' /tmp/apktool_out/AndroidManifest.xml 2>/dev/null | head -80
+            echo "=== Manifest ==="
+            grep -E 'package=|<activity|<service|<receiver|<provider' /tmp/apktool_out/AndroidManifest.xml 2>/dev/null | head -60
+            echo ""
+            echo "=== Permissions ==="
+            grep 'uses-permission' /tmp/apktool_out/AndroidManifest.xml 2>/dev/null | sed 's/.*android:name="//;s/".*//'
             echo ""
             echo "=== Native libs ==="
-            find /tmp/apktool_out/lib -name '*.so' 2>/dev/null | head -30
+            find /tmp/apktool_out/lib -name '*.so' 2>/dev/null | sort
             echo ""
-            echo "=== Top-level Java packages ==="
-            ls /tmp/jadx_out/ 2>/dev/null
-            echo ""
-            echo "=== Java file count ==="
-            find /tmp/jadx_out -name '*.java' 2>/dev/null | wc -l
+            echo "=== jadx output ==="
+            if [ -d /tmp/jadx_out ]; then
+              ls /tmp/jadx_out/ 2>/dev/null
+              echo "Java files: $(find /tmp/jadx_out -name '*.java' 2>/dev/null | wc -l)"
+            else
+              echo "jadx_out not available"
+            fi
           } > /tmp/triage-summary.md
           cat /tmp/triage-summary.md
 
       - name: Package and upload
         run: |
-          # tar everything to avoid upload-artifact's per-file overhead
           cd /tmp
           tar czf apk-triage-output.tar.gz \
             --exclude='*.png' --exclude='*.jpg' --exclude='*.gif' \
-            jadx_out/ apktool_out/ triage-summary.md
+            jadx_out/ apktool_out/ triage-summary.md 2>/dev/null || \
+          tar czf apk-triage-output.tar.gz apktool_out/ triage-summary.md
           ls -lh apk-triage-output.tar.gz
 
       - name: Upload artifact
