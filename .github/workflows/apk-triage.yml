@@ -81,13 +81,18 @@ jobs:
           } > /tmp/triage-summary.md
           cat /tmp/triage-summary.md
 
-      - name: Upload artifacts
+      - name: Package and upload
+        run: |
+          # tar everything to avoid upload-artifact's per-file overhead
+          cd /tmp
+          tar czf apk-triage-output.tar.gz \
+            jadx_out/ apktool_out/ triage-summary.md \
+            --exclude='*.png' --exclude='*.jpg' --exclude='*.gif'
+          ls -lh apk-triage-output.tar.gz
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: apk-triage-output
-          path: |
-            /tmp/jadx_out/
-            /tmp/apktool_out/
-            /tmp/triage-summary.md
-          compression-level: 6
+          path: /tmp/apk-triage-output.tar.gz
           retention-days: 7
