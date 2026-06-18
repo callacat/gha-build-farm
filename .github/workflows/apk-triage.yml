@@ -54,11 +54,11 @@ jobs:
       - name: jadx decompile
         run: |
           mkdir -p /tmp/jadx_out
-          jadx -d /tmp/jadx_out --show-bad-code /tmp/${{ inputs.apk_name }} 2>&1 | tail -20
+          /opt/jadx/bin/jadx -d /tmp/jadx_out --show-bad-code /tmp/${{ inputs.apk_name }} 2>&1
 
       - name: apktool decode
         run: |
-          apktool d /tmp/${{ inputs.apk_name }} -o /tmp/apktool_out -f 2>&1 | tail -20
+          /opt/apktool d /tmp/${{ inputs.apk_name }} -o /tmp/apktool_out -f 2>&1
 
       - name: Generate triage summary
         run: |
