@@ -58,7 +58,7 @@ jobs:
       - name: jadx (single-thread, 5g)
         run: |
           mkdir -p /tmp/jadx_out
-          JADX_OPTS="-Xmx5g" timeout 1500 /opt/jadx/bin/jadx --jobs 1 -d /tmp/jadx_out /tmp/$APK_NAME 2>&1 || echo "jadx: failed/timed out"
+          JADX_OPTS="-Xmx5g" timeout 1500 /opt/jadx/bin/jadx -j 1 -d /tmp/jadx_out /tmp/$APK_NAME 2>&1 || echo "jadx: failed/timed out"
           echo "Java files: $(find /tmp/jadx_out -name '*.java' 2>/dev/null | wc -l)"
           ls /tmp/jadx_out/ 2>/dev/null | head -20
 
