@@ -20,7 +20,7 @@ concurrency:
 jobs:
   triage:
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -55,7 +55,7 @@ jobs:
       - name: jadx decompile
         run: |
           mkdir -p /tmp/jadx_out
-          /opt/jadx/bin/jadx -d /tmp/jadx_out --show-bad-code /tmp/${{ inputs.apk_name }} 2>&1
+          JADX_OPTS="-Xmx6g" /opt/jadx/bin/jadx -d /tmp/jadx_out /tmp/${{ inputs.apk_name }} 2>&1
 
       - name: apktool decode
         run: |
