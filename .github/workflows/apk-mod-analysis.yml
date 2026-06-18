@@ -1,0 +1,145 @@
+name: APK Mod Analysis
+on:
+  workflow_dispatch:
+    inputs:
+      apk_name:
+        description: 'APK file name'
+        required: false
+        type: string
+        default: 'fanqie_novel_7.2.4.19.apk'
+
+env:
+  APK_DL: https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie_novel_7.2.4.19.apk
+  APK_NAME: ${{ inputs.apk_name }}
+
+jobs:
+  analyze:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Install tools
+        run: |
+          curl -sL "https://github.com/skylot/jadx/releases/download/v1.5.5/jadx-1.5.5.zip" -o /tmp/jadx.zip
+          unzip -q /tmp/jadx.zip -d /opt/jadx && chmod +x /opt/jadx/bin/jadx
+          curl -sL "https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar" -o /opt/apktool.jar
+          printf '#!/bin/bash\njava -jar /opt/apktool.jar "$@"\n' > /opt/apktool && chmod +x /opt/apktool
+
+      - name: Download APK
+        run: curl -sL "$APK_DL" -o /tmp/$APK_NAME && ls -lh /tmp/$APK_NAME
+
+      - name: apktool decode
+        run: /opt/apktool d /tmp/$APK_NAME -o /tmp/apktool_out -f 2>&1
+
+      - name: 1. Manifest Analysis — modified/added permissions
+        run: |
+          echo "=== COMPARISON MARKERS ==="
+          grep -n 'android:exported="true"' /tmp/apktool_out/AndroidManifest.xml 2>/dev/null | head -20
+          echo ""
+          echo "=== NON-STANDARD PERMISSIONS ==="
+          grep 'uses-permission' /tmp/apktool_out/AndroidManifest.xml 2>/dev/null | grep -v "android.permission\." | grep -v "com.android\." | head -20
+          echo ""
+          echo "=== DEBUGGABLE? ==="
+          grep 'android:debuggable\|android:extractNativeLibs\|android:largeHeap' /tmp/apktool_out/AndroidManifest.xml 2>/dev/null
+
+      - name: 2. Ad SDK detection — remnant ad libraries
+        run: |
+          echo "=== AD SDK PACKAGES IN JADX ==="
+          mkdir -p /tmp/jadx_out
+          JADX_OPTS="-Xmx4g" timeout 120 /opt/jadx/bin/jadx -d /tmp/jadx_out --select-classes 'com.bytedance.sdk.*' /tmp/$APK_NAME 2>/dev/null || true
+          find /tmp/jadx_out -name '*.java' 2>/dev/null | head -30
+          echo ""
+          echo "=== AD SDK PACKAGES IN SMALI ==="
+          find /tmp/apktool_out/smali* -path '*bytedance*sdk*' -o -path '*pangle*' -o -path '*pangolin*' -o -path '*gromore*' -o -path '*kssdk*' -o -path '*bdad*' 2>/dev/null | head -20
+          echo "---count---"
+          find /tmp/apktool_out/smali* -name '*.smali' 2>/dev/null | wc -l
+
+      - name: 3. Advertising ID / Tracking calls
+        run: |
+          echo "=== ADVERTISING ID REFERENCES ==="
+          grep -rn 'AdvertisingId\|advertisingId\|GAID\|oaid\|OAID\|getAdvertisingIdInfo' /tmp/apktool_out/smali* 2>/dev/null | head -15
+          echo ""
+          echo "=== IMEI / DEVICE ID REFERENCES ==="
+          grep -rn 'getDeviceId\|getImei\|IMEI\|imsi\|subscriberId\|getSimSerialNumber\|getSubscriberId' /tmp/apktool_out/smali* 2>/dev/null | head -15
+          echo ""
+          echo "=== INSTALL REFERRER ==="
+          grep -rn 'install.*referrer\|INSTALL_REFERRER' /tmp/apktool_out/smali* 2>/dev/null | head -10
+
+      - name: 4. Network endpoints — suspicious URLs
+        run: |
+          echo "=== HTTP/HTTPS URLS IN SMALI ==="
+          grep -roh 'https\?://[^"'"'"' ]*' /tmp/apktool_out/smali* 2>/dev/null | sort -u | grep -v 'android\.goo\|googleapis\|github\|w3\.org\|xmlpull\|junit\|schemas\.android' | head -40
+
+      - name: 5. ShadowHook & native code scanning
+        run: |
+          echo "=== SHADOWHOOK SMALI ==="
+          find /tmp/apktool_out/smali* -path '*shadowhook*' -o -path '*ShadowHook*' 2>/dev/null | head -10
+          echo ""
+          echo "=== NATIVE METHOD DECLARATIONS ==="
+          grep -rn 'method.*native' /tmp/apktool_out/smali* 2>/dev/null | grep -v '^\s*#' | head -30
+          echo ""
+          echo "=== System.loadLibrary CALLS ==="
+          grep -rn 'Ljava/lang/System;->loadLibrary' /tmp/apktool_out/smali* 2>/dev/null | head -30
+
+      - name: 6. Privacy collection — contacts/location/sms
+        run: |
+          echo "=== CONTACTS ACCESS ==="
+          grep -rn 'ContentResolver;->query\|content://com.android.contacts' /tmp/apktool_out/smali* 2>/dev/null | head -10
+          echo ""
+          echo "=== LOCATION ACCESS ==="
+          grep -rn 'LocationManager\|requestLocationUpdates\|getLastKnownLocation' /tmp/apktool_out/smali* 2>/dev/null | head -10
+          echo ""
+          echo "=== SMS ACCESS ==="
+          grep -rn 'content://sms\|SmsManager\|sendTextMessage' /tmp/apktool_out/smali* 2>/dev/null | head -10
+          echo ""
+          echo "=== ACCOUNTS ACCESS ==="
+          grep -rn 'AccountManager\|getAccounts\|getAccountsByType' /tmp/apktool_out/smali* 2>/dev/null | head -10
+          echo ""
+          echo "=== FILE/STORAGE ACCESS ==="
+          grep -rn 'MANAGE_EXTERNAL_STORAGE\|Environment;->getExternalStorage' /tmp/apktool_out/smali* 2>/dev/null | head -10
+
+      - name: 7. Root detection / SSL pinning bypass
+        run: |
+          echo "=== ROOT DETECTION ==="
+          grep -rn 'su\|Superuser\|root.*detect\|isRooted\|checkRoot\|build\.TAGS.*test-keys' /tmp/apktool_out/smali* 2>/dev/null | head -15
+          echo ""
+          echo "=== SSL PINNING ==="
+          grep -rn 'CertificatePinner\|ssl.*pin\|SSLPinning\|onReceivedSslError\|checkClientTrusted' /tmp/apktool_out/smali* 2>/dev/null | head -15
+
+      - name: 8. BigRedPacket / ColdStart / LuckyCat
+        run: |
+          echo "=== COLD START ACTIVITIES ==="
+          grep -rn 'coldstart\|bigredpacket\|redpacket\|RedPacket' /tmp/apktool_out/AndroidManifest.xml 2>/dev/null | head -10
+          echo ""
+          echo "=== LUCKY CAT ==="
+          grep -rn 'luckycat\|LuckyCat' /tmp/apktool_out/AndroidManifest.xml 2>/dev/null | head -10
+          echo ""
+          echo "=== PUSH / ALLIANCE ==="
+          grep -rn 'push\|alliance\|ALLIANCE' /tmp/apktool_out/AndroidManifest.xml 2>/dev/null | head -10
+
+      - name: 9. Summary
+        run: |
+          echo "=== ANALYSIS COMPLETE ==="
+          echo "Total smali files: $(find /tmp/apktool_out -name '*.smali' 2>/dev/null | wc -l)"
+          echo "Total native libs: $(find /tmp/apktool_out/lib -name '*.so' 2>/dev/null | wc -l)"
+          echo "Ad SDK remnants: $(find /tmp/apktool_out/smali* -path '*bytedance*sdk*' -o -path '*pangle*' 2>/dev/null | wc -l)"
+          echo "Native methods: $(grep -rn 'method.*native' /tmp/apktool_out/smali* 2>/dev/null | grep -v '^\s*#' | wc -l)"
+          echo "LoadLibrary calls: $(grep -rn 'loadLibrary' /tmp/apktool_out/smali* 2>/dev/null | wc -l)"
+
+      - name: Upload analysis artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mod-analysis
+          path: /tmp/apktool_out/
+          compression-level: 3
+          retention-days: 7
+
+      - name: Delete workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          retain_days: 0
+          keep_minimum_runs: 5
