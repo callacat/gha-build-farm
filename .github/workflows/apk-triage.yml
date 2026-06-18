@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       apk_url:
-        description: 'APK download URL'
+        description: 'APK download URL (used only if not in Release cache)'
         required: true
         type: string
       apk_name:
@@ -40,10 +40,30 @@ jobs:
           echo 'java -jar /opt/apktool.jar "$@"' >> /opt/apktool
           chmod +x /opt/apktool
 
-      - name: Download APK
+      - name: Download APK (release cache or external)
+        id: dl
         run: |
-          curl -sL "${{ inputs.apk_url }}" -o /tmp/${{ inputs.apk_name }}
+          # First try release cache (gh auth with GITHUB_TOKEN works on runner)
+          if gh release download apk-assets -p "${{ inputs.apk_name }}" -R ${{ github.repository }} --dir /tmp 2>/dev/null; then
+            echo "Downloaded from release cache"
+            echo "source=release" >> "$GITHUB_OUTPUT"
+          else
+            echo "Not in release cache, downloading from URL"
+            curl -sL "${{ inputs.apk_url }}" -o /tmp/${{ inputs.apk_name }}
+            echo "source=external" >> "$GITHUB_OUTPUT"
+          fi
           ls -lh /tmp/${{ inputs.apk_name }}
+
+      - name: Upload APK to release cache (if from external)
+        if: steps.dl.outputs.source == 'external'
+        run: |
+          # gh CLI works on runner with GITHUB_TOKEN
+          gh release view apk-assets -R ${{ github.repository }} 2>/dev/null || \
+            gh release create apk-assets -R ${{ github.repository }} \
+              --title "APK Assets" --notes "APK download cache" 2>/dev/null
+          gh release upload apk-assets "/tmp/${{ inputs.apk_name }}#${{ inputs.apk_name }}" \
+            -R ${{ github.repository }} --clobber 2>&1
+          echo "APK cached to release"
 
       - name: apktool decode
         run: |
@@ -53,7 +73,6 @@ jobs:
         run: |
           mkdir -p /tmp/jadx_out
           cd /tmp
-          # extract all dex files
           unzip -o ${{ inputs.apk_name }} 'classes*.dex' -d /tmp/dex_temp/ 2>/dev/null
           DEXES=$(find /tmp/dex_temp -name 'classes*.dex' | sort)
           DEX_COUNT=$(echo "$DEXES" | wc -l)
@@ -66,7 +85,6 @@ jobs:
             OUT_DIR="/tmp/jadx_${DEX_NAME%.dex}"
             mkdir -p "$OUT_DIR"
             if JADX_OPTS="-Xmx4g" timeout 120 /opt/jadx/bin/jadx -d "$OUT_DIR" "$dex" 2>&1; then
-              # merge into jadx_out
               rsync -a "$OUT_DIR/" /tmp/jadx_out/ 2>/dev/null || cp -rn "$OUT_DIR/"* /tmp/jadx_out/ 2>/dev/null || true
               SUCCESS=$((SUCCESS+1))
               echo "  ✅ $DEX_NAME decompiled successfully"
