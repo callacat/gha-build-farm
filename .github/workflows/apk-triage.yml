@@ -1,0 +1,93 @@
+name: APK Triage
+
+on:
+  workflow_dispatch:
+    inputs:
+      apk_url:
+        description: 'APK download URL'
+        required: true
+        type: string
+      apk_name:
+        description: 'APK file name (optional)'
+        required: false
+        type: string
+        default: 'target.apk'
+
+concurrency:
+  group: apk-triage-${{ github.actor }}
+  cancel-in-progress: true
+
+jobs:
+  triage:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Install jadx
+        run: |
+          curl -sL "https://github.com/skylot/jadx/releases/download/v1.5.5/jadx-1.5.5.zip" -o /tmp/jadx.zip
+          unzip -q /tmp/jadx.zip -d /opt/jadx
+          echo "/opt/jadx/bin" >> $GITHUB_PATH
+
+      - name: Install apktool
+        run: |
+          curl -sL "https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar" -o /opt/apktool.jar
+          echo '#!/bin/bash' > /opt/apktool
+          echo 'java -jar /opt/apktool.jar "$@"' >> /opt/apktool
+          chmod +x /opt/apktool
+          echo "/opt" >> $GITHUB_PATH
+
+      - name: Download APK
+        run: |
+          echo "Downloading: ${{ inputs.apk_url }}"
+          curl -sL "${{ inputs.apk_url }}" -o /tmp/${{ inputs.apk_name }}
+          ls -lh /tmp/${{ inputs.apk_name }}
+          file /tmp/${{ inputs.apk_name }}
+
+      - name: jadx decompile
+        run: |
+          mkdir -p /tmp/jadx_out
+          jadx -d /tmp/jadx_out --show-bad-code /tmp/${{ inputs.apk_name }} 2>&1 | tail -20
+
+      - name: apktool decode
+        run: |
+          apktool d /tmp/${{ inputs.apk_name }} -o /tmp/apktool_out -f 2>&1 | tail -20
+
+      - name: Generate triage summary
+        run: |
+          {
+            echo "=== APK Triage Summary ==="
+            echo "APK: ${{ inputs.apk_name }}"
+            echo "Size: $(ls -lh /tmp/${{ inputs.apk_name }} | awk '{print $5}')"
+            echo ""
+            echo "=== Manifest (package / permissions / components) ==="
+            grep -E 'package=|android:name="|android:exported' /tmp/apktool_out/AndroidManifest.xml 2>/dev/null | head -80
+            echo ""
+            echo "=== Native libs ==="
+            find /tmp/apktool_out/lib -name '*.so' 2>/dev/null | head -30
+            echo ""
+            echo "=== Top-level Java packages ==="
+            ls /tmp/jadx_out/ 2>/dev/null
+            echo ""
+            echo "=== Java file count ==="
+            find /tmp/jadx_out -name '*.java' 2>/dev/null | wc -l
+          } > /tmp/triage-summary.md
+          cat /tmp/triage-summary.md
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-triage-output
+          path: |
+            /tmp/jadx_out/
+            /tmp/apktool_out/
+            /tmp/triage-summary.md
+          compression-level: 6
+          retention-days: 7
