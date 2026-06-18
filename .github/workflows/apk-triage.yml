@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       apk_url:
-        description: 'APK download URL (used only if not in Release cache)'
+        description: 'APK download URL'
         required: true
         type: string
       apk_name:
-        description: 'APK file name (optional)'
+        description: 'APK file name'
         required: false
         type: string
         default: 'target.apk'
@@ -21,15 +21,19 @@ permissions:
   contents: write
   actions: write
 
+env:
+  APK_NAME: ${{ inputs.apk_name }}
+  APK_URL: ${{ inputs.apk_url }}
+
 jobs:
-  triage:
+  setup:
     runs-on: ubuntu-22.04
-    timeout-minutes: 60
+    timeout-minutes: 15
+    outputs:
+      jadx_winner: ${{ steps.pick.outputs.winner }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
@@ -45,89 +49,144 @@ jobs:
           chmod +x /opt/apktool
 
       - name: Download APK (release cache or external)
-        id: dl
         run: |
-          # First try release cache (gh auth with GITHUB_TOKEN works on runner)
-          if gh release download apk-assets -p "${{ inputs.apk_name }}" -R ${{ github.repository }} --dir /tmp 2>/dev/null; then
+          if gh release download apk-assets -p "$APK_NAME" -R ${{ github.repository }} --dir /tmp 2>/dev/null; then
             echo "Downloaded from release cache"
-            echo "source=release" >> "$GITHUB_OUTPUT"
           else
-            echo "Not in release cache, downloading from URL"
-            curl -sL "${{ inputs.apk_url }}" -o /tmp/${{ inputs.apk_name }}
-            echo "source=external" >> "$GITHUB_OUTPUT"
+            curl -sL "$APK_URL" -o /tmp/$APK_NAME
+            gh release view apk-assets -R ${{ github.repository }} 2>/dev/null || \
+              gh release create apk-assets -R ${{ github.repository }} \
+                --title "APK Assets" --notes "Cache" 2>/dev/null
+            gh release upload apk-assets "/tmp/$APK_NAME#$APK_NAME" \
+              -R ${{ github.repository }} --clobber 2>/dev/null || true
           fi
-          ls -lh /tmp/${{ inputs.apk_name }}
-
-      - name: Upload APK to release cache (if from external)
-        if: steps.dl.outputs.source == 'external'
-        continue-on-error: true
-        run: |
-          # gh CLI works on runner with GITHUB_TOKEN
-          gh release view apk-assets -R ${{ github.repository }} 2>/dev/null || \
-            gh release create apk-assets -R ${{ github.repository }} \
-              --title "APK Assets" --notes "APK download cache" 2>/dev/null
-          gh release upload apk-assets "/tmp/${{ inputs.apk_name }}#${{ inputs.apk_name }}" \
-            -R ${{ github.repository }} --clobber 2>&1
-          echo "APK cached to release"
 
       - name: apktool decode
         run: |
-          /opt/apktool d /tmp/${{ inputs.apk_name }} -o /tmp/apktool_out -f 2>&1
+          timeout 300 /opt/apktool d /tmp/$APK_NAME -o /tmp/apktool_out -f 2>&1 || echo "apktool timed out"
 
-      - name: jadx decompile (single-pass, single-threaded)
+      - name: Save apktool output
         run: |
-          mkdir -p /tmp/jadx_out
-          JADX_OPTS="-Xmx5g" timeout 1800 /opt/jadx/bin/jadx \
-            --jobs 1 \
-            -d /tmp/jadx_out \
-            /tmp/${{ inputs.apk_name }} 2>&1 || echo "jadx: timed out or failed, continuing"
+          tar czf /tmp/apktool-out.tar.gz apktool_out/
+        working-directory: /tmp
 
-      - name: Generate triage summary
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apktool-data
+          path: /tmp/apktool-out.tar.gz
+          retention-days: 7
+
+      - name: Generate manifest
         run: |
-          {
-            echo "=== APK Triage Summary ==="
-            echo "APK: ${{ inputs.apk_name }}"
-            echo "Size: $(ls -lh /tmp/${{ inputs.apk_name }} | awk '{print $5}')"
-            echo ""
-            echo "=== Manifest ==="
-            grep -E 'package=|<activity|<service|<receiver|<provider' /tmp/apktool_out/AndroidManifest.xml 2>/dev/null | head -60
-            echo ""
-            echo "=== Permissions ==="
-            grep 'uses-permission' /tmp/apktool_out/AndroidManifest.xml 2>/dev/null | sed 's/.*android:name="//;s/".*//'
-            echo ""
-            echo "=== Native libs ==="
-            find /tmp/apktool_out/lib -name '*.so' 2>/dev/null | sort
-            echo ""
-            echo "=== jadx output ==="
-            if [ -d /tmp/jadx_out ]; then
-              echo "Top-level packages:"
-              ls /tmp/jadx_out/ 2>/dev/null | head -40
-              echo ""
-              echo "Java files: $(find /tmp/jadx_out -name '*.java' 2>/dev/null | wc -l)"
-            else
-              echo "jadx_out not available"
-            fi
-          } > /tmp/triage-summary.md
-          cat /tmp/triage-summary.md
+          echo "=== APK: $APK_NAME ===" > /tmp/manifest.txt
+          echo "Size: $(ls -lh /tmp/$APK_NAME | awk '{print $5}')" >> /tmp/manifest.txt
+          echo "" >> /tmp/manifest.txt
+          echo "=== Manifest ===" >> /tmp/manifest.txt
+          grep -E 'package=|<activity|<service|<receiver|<provider' /tmp/apktool_out/AndroidManifest.xml 2>/dev/null | head -60 >> /tmp/manifest.txt
+          echo "" >> /tmp/manifest.txt
+          echo "=== Permissions ===" >> /tmp/manifest.txt
+          grep 'uses-permission' /tmp/apktool_out/AndroidManifest.xml 2>/dev/null | sed 's/.*android:name="//;s/".*//' >> /tmp/manifest.txt
+          echo "" >> /tmp/manifest.txt
+          echo "=== Native libs ===" >> /tmp/manifest.txt
+          find /tmp/apktool_out/lib -name '*.so' 2>/dev/null | sort >> /tmp/manifest.txt
+          cat /tmp/manifest.txt
 
-      - name: Package and upload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: manifest
+          path: /tmp/manifest.txt
+          retention-days: 7
+
+  jadx-decompile:
+    needs: setup
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - label: a-jobs1-5g
+            jadx_args: "--jobs 1"
+            heap: "-Xmx5g"
+          - label: b-jobs2-5g
+            jadx_args: "--jobs 2"
+            heap: "-Xmx5g"
+          - label: c-multi-4g
+            jadx_args: ""
+            heap: "-Xmx4g"
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Install jadx
         run: |
-          cd /tmp
-          tar czf apk-triage-output.tar.gz \
-            --exclude='*.png' --exclude='*.jpg' --exclude='*.gif' \
-            jadx_out/ apktool_out/ triage-summary.md 2>/dev/null || \
-          tar czf apk-triage-output.tar.gz apktool_out/ triage-summary.md
-          ls -lh apk-triage-output.tar.gz
+          curl -sL "https://github.com/skylot/jadx/releases/download/v1.5.5/jadx-1.5.5.zip" -o /tmp/jadx.zip
+          unzip -q /tmp/jadx.zip -d /opt/jadx
+          chmod +x /opt/jadx/bin/jadx
 
-      - name: Upload artifact
+      - name: Download APK (from release cache)
+        run: |
+          gh release download apk-assets -p "$APK_NAME" -R ${{ github.repository }} --dir /tmp
+
+      - name: jadx (${{ matrix.config.label }})
+        run: |
+          echo "=== jadx config: ${{ matrix.config.jadx_args }} heap=${{ matrix.config.heap }} ==="
+          mkdir -p /tmp/output
+          JADX_OPTS="${{ matrix.config.heap }}" timeout 1500 /opt/jadx/bin/jadx \
+            ${{ matrix.config.jadx_args }} \
+            -d /tmp/output /tmp/$APK_NAME 2>&1
+          COUNT=$(find /tmp/output -name '*.java' 2>/dev/null | wc -l)
+          echo "=== RESULT: $COUNT Java files ==="
+
+      - name: Upload jadx (${{ matrix.config.label }})
         uses: actions/upload-artifact@v4
         with:
-          name: apk-triage-output
-          path: /tmp/apk-triage-output.tar.gz
+          name: jadx-${{ matrix.config.label }}
+          path: /tmp/output/
           retention-days: 7
+
+  collect:
+    needs: [setup, jadx-decompile]
+    if: always()
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: manifest
+          path: /tmp
+
+      - name: Compare results
+        run: |
+          cat /tmp/manifest.txt
+          echo ""
+          echo "=== jadx strategy comparison ==="
+          echo ""
+          printf "%-20s %-15s %-15s %s\n" "Strategy" "Java Files" "Status" "Notes"
+          printf "%-20s %-15s %-15s %s\n" "--------" "----------" "------" "-----"
+
+          for cfg in a-jobs1-5g b-jobs2-5g c-multi-4g; do
+            mkdir -p /tmp/$cfg
+            gh run download ${{ github.run_id }} -n "jadx-$cfg" \
+              -R ${{ github.repository }} --dir /tmp/$cfg 2>/dev/null
+            STATUS=$?
+            COUNT=$(find /tmp/$cfg -name '*.java' 2>/dev/null | wc -l)
+            if [ $STATUS -eq 0 ] && [ $COUNT -gt 0 ]; then
+              NOTES="✅"
+              BEST="$cfg"
+            elif [ $STATUS -eq 0 ]; then
+              NOTES="⚠️ no java output"
+            else
+              NOTES="❌ crashed"
+            fi
+            printf "%-20s %-15s %-15s %s\n" "$cfg" "$COUNT" "done" "$NOTES"
+            rm -rf /tmp/$cfg
+          done
 
       - name: Delete workflow runs
         uses: Mattraks/delete-workflow-runs@v2
         with:
           retain_days: 0
-          keep_minimum_runs: 3
+          keep_minimum_runs: 5
