@@ -34,6 +34,7 @@ jobs:
         run: |
           curl -sL "https://github.com/skylot/jadx/releases/download/v1.5.5/jadx-1.5.5.zip" -o /tmp/jadx.zip
           unzip -q /tmp/jadx.zip -d /opt/jadx
+          chmod +x /opt/jadx/bin/jadx
           echo "/opt/jadx/bin" >> $GITHUB_PATH
 
       - name: Install apktool
