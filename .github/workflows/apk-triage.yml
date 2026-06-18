@@ -17,6 +17,10 @@ concurrency:
   group: apk-triage-${{ github.actor }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+  actions: write
+
 jobs:
   triage:
     runs-on: ubuntu-22.04
@@ -56,6 +60,7 @@ jobs:
 
       - name: Upload APK to release cache (if from external)
         if: steps.dl.outputs.source == 'external'
+        continue-on-error: true
         run: |
           # gh CLI works on runner with GITHUB_TOKEN
           gh release view apk-assets -R ${{ github.repository }} 2>/dev/null || \
