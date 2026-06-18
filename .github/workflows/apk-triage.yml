@@ -86,8 +86,8 @@ jobs:
           # tar everything to avoid upload-artifact's per-file overhead
           cd /tmp
           tar czf apk-triage-output.tar.gz \
-            jadx_out/ apktool_out/ triage-summary.md \
-            --exclude='*.png' --exclude='*.jpg' --exclude='*.gif'
+            --exclude='*.png' --exclude='*.jpg' --exclude='*.gif' \
+            jadx_out/ apktool_out/ triage-summary.md
           ls -lh apk-triage-output.tar.gz
 
       - name: Upload artifact
