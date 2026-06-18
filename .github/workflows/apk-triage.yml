@@ -69,31 +69,13 @@ jobs:
         run: |
           /opt/apktool d /tmp/${{ inputs.apk_name }} -o /tmp/apktool_out -f 2>&1
 
-      - name: jadx decompile (per-dex, skip hanging)
+      - name: jadx decompile (single-pass, single-threaded)
         run: |
           mkdir -p /tmp/jadx_out
-          cd /tmp
-          unzip -o ${{ inputs.apk_name }} 'classes*.dex' -d /tmp/dex_temp/ 2>/dev/null
-          DEXES=$(find /tmp/dex_temp -name 'classes*.dex' | sort)
-          DEX_COUNT=$(echo "$DEXES" | wc -l)
-          echo "Found $DEX_COUNT dex files"
-          SUCCESS=0
-          SKIP=0
-          for dex in $DEXES; do
-            DEX_NAME=$(basename "$dex")
-            echo "=== Processing: $DEX_NAME ==="
-            OUT_DIR="/tmp/jadx_${DEX_NAME%.dex}"
-            mkdir -p "$OUT_DIR"
-            if JADX_OPTS="-Xmx4g" timeout 120 /opt/jadx/bin/jadx -d "$OUT_DIR" "$dex" 2>&1; then
-              rsync -a "$OUT_DIR/" /tmp/jadx_out/ 2>/dev/null || cp -rn "$OUT_DIR/"* /tmp/jadx_out/ 2>/dev/null || true
-              SUCCESS=$((SUCCESS+1))
-              echo "  ✅ $DEX_NAME decompiled successfully"
-            else
-              SKIP=$((SKIP+1))
-              echo "  ⏭️ $DEX_NAME skipped (timeout or error)"
-            fi
-          done
-          echo "=== jadx: $SUCCESS/$DEX_COUNT dex files done, $SKIP skipped ==="
+          JADX_OPTS="-Xmx5g" timeout 1800 /opt/jadx/bin/jadx \
+            --jobs 1 \
+            -d /tmp/jadx_out \
+            /tmp/${{ inputs.apk_name }} 2>&1 || echo "jadx: timed out or failed, continuing"
 
       - name: Generate triage summary
         run: |
