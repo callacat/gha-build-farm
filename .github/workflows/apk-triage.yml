@@ -56,7 +56,7 @@ jobs:
       - name: jadx decompile (timeout-safe)
         run: |
           mkdir -p /tmp/jadx_out
-          JADX_OPTS="-Xmx4g" timeout 1200 /opt/jadx/bin/jadx -d /tmp/jadx_out /tmp/${{ inputs.apk_name }} 2>&1 || echo "jadx: timed out or failed (20min limit), continuing with apktool output"
+          JADX_OPTS="-Xmx4g" timeout 600 /opt/jadx/bin/jadx -d /tmp/jadx_out /tmp/${{ inputs.apk_name }} 2>&1 || echo "jadx: timed out or failed (10min limit), continuing with apktool output"
 
       - name: Generate triage summary
         run: |
@@ -99,3 +99,9 @@ jobs:
           name: apk-triage-output
           path: /tmp/apk-triage-output.tar.gz
           retention-days: 7
+
+      - name: Delete workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          retain_days: 0
+          keep_minimum_runs: 3
