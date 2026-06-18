@@ -32,11 +32,9 @@ jobs:
 
       - name: Install tools
         run: |
-          # jadx
           curl -sL "https://github.com/skylot/jadx/releases/download/v1.5.5/jadx-1.5.5.zip" -o /tmp/jadx.zip
           unzip -q /tmp/jadx.zip -d /opt/jadx
           chmod +x /opt/jadx/bin/jadx
-          # apktool
           curl -sL "https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar" -o /opt/apktool.jar
           echo '#!/bin/bash' > /opt/apktool
           echo 'java -jar /opt/apktool.jar "$@"' >> /opt/apktool
@@ -44,19 +42,40 @@ jobs:
 
       - name: Download APK
         run: |
-          echo "Downloading: ${{ inputs.apk_url }}"
           curl -sL "${{ inputs.apk_url }}" -o /tmp/${{ inputs.apk_name }}
           ls -lh /tmp/${{ inputs.apk_name }}
-          file /tmp/${{ inputs.apk_name }}
 
-      - name: apktool decode (always runs)
+      - name: apktool decode
         run: |
           /opt/apktool d /tmp/${{ inputs.apk_name }} -o /tmp/apktool_out -f 2>&1
 
-      - name: jadx decompile (timeout-safe)
+      - name: jadx decompile (per-dex, skip hanging)
         run: |
           mkdir -p /tmp/jadx_out
-          JADX_OPTS="-Xmx4g" timeout 600 /opt/jadx/bin/jadx -d /tmp/jadx_out /tmp/${{ inputs.apk_name }} 2>&1 || echo "jadx: timed out or failed (10min limit), continuing with apktool output"
+          cd /tmp
+          # extract all dex files
+          unzip -o ${{ inputs.apk_name }} 'classes*.dex' -d /tmp/dex_temp/ 2>/dev/null
+          DEXES=$(find /tmp/dex_temp -name 'classes*.dex' | sort)
+          DEX_COUNT=$(echo "$DEXES" | wc -l)
+          echo "Found $DEX_COUNT dex files"
+          SUCCESS=0
+          SKIP=0
+          for dex in $DEXES; do
+            DEX_NAME=$(basename "$dex")
+            echo "=== Processing: $DEX_NAME ==="
+            OUT_DIR="/tmp/jadx_${DEX_NAME%.dex}"
+            mkdir -p "$OUT_DIR"
+            if JADX_OPTS="-Xmx4g" timeout 120 /opt/jadx/bin/jadx -d "$OUT_DIR" "$dex" 2>&1; then
+              # merge into jadx_out
+              rsync -a "$OUT_DIR/" /tmp/jadx_out/ 2>/dev/null || cp -rn "$OUT_DIR/"* /tmp/jadx_out/ 2>/dev/null || true
+              SUCCESS=$((SUCCESS+1))
+              echo "  ✅ $DEX_NAME decompiled successfully"
+            else
+              SKIP=$((SKIP+1))
+              echo "  ⏭️ $DEX_NAME skipped (timeout or error)"
+            fi
+          done
+          echo "=== jadx: $SUCCESS/$DEX_COUNT dex files done, $SKIP skipped ==="
 
       - name: Generate triage summary
         run: |
@@ -76,7 +95,9 @@ jobs:
             echo ""
             echo "=== jadx output ==="
             if [ -d /tmp/jadx_out ]; then
-              ls /tmp/jadx_out/ 2>/dev/null
+              echo "Top-level packages:"
+              ls /tmp/jadx_out/ 2>/dev/null | head -40
+              echo ""
               echo "Java files: $(find /tmp/jadx_out -name '*.java' 2>/dev/null | wc -l)"
             else
               echo "jadx_out not available"
