@@ -9,6 +9,7 @@ on:
 
 env:
   OFFICIAL_URL: https://lf9-apk.ugapk.cn/package/apk/novelapp/1327_72432_72432/15/novelapp_45466779a_v1327_72432_72432_d367_1781612828.apk?v=1781612834
+  MODDED_URL: https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie_novel_7.2.4.19.apk
   APK_NAME: ${{ inputs.apk_name }}
 
 jobs:
@@ -205,15 +206,27 @@ jobs:
           echo "Before: $BEFORE_DELETION smali files"
           echo "After: $(find /tmp/base -name '*.smali' | wc -l) smali files"
 
-      # ── Phase 3: Build ──
-      - name: Check lib structure
+      # ── Phase 3: Extract arm64-v8a libs from modded APK ──
+      - name: Download modded APK for arm64-v8a libs
         run: |
-          echo "=== LIB DIRECTORIES ==="
-          find /tmp/base/lib -type d | sort
-          echo "=== arm64-v8a libs ==="
-          ls /tmp/base/lib/arm64-v8a/ 2>/dev/null | head -5
-          echo "Total: $(find /tmp/base/lib -name '*.so' | wc -l)"
+          curl -sL "$MODDED_URL" -o /tmp/modded.apk -w "HTTP %{http_code}, size: %{size_download}\n"
+          ls -lh /tmp/modded.apk
 
+      - name: Extract arm64-v8a so files from modded APK
+        run: |
+          mkdir -p /tmp/modded_lib
+          cd /tmp/modded_lib
+          unzip -q -o /tmp/modded.apk 'lib/arm64-v8a/*' 2>&1
+          echo "arm64-v8a libs extracted: $(find lib/arm64-v8a -name '*.so' 2>/dev/null | wc -l)"
+          ls lib/arm64-v8a/ 2>/dev/null | head -20
+
+      - name: Inject arm64-v8a libs into clean build
+        run: |
+          cd /tmp/base
+          mkdir -p lib/arm64-v8a
+          cp -a /tmp/modded_lib/lib/arm64-v8a/*.so lib/arm64-v8a/ 2>/dev/null
+          echo "arm64-v8a: $(ls lib/arm64-v8a/*.so 2>/dev/null | wc -l) libs"
+          echo "armeabi-v7a: $(ls lib/armeabi-v7a/*.so 2>/dev/null | wc -l) libs"
       - name: Rebuild APK
         run: |
           /opt/apktool b /tmp/base -o /tmp/unsigned.apk 2>&1 | tail -10
