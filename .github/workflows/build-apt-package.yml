@@ -57,4 +57,10 @@ jobs:
         with:
           name: deb-${{ inputs.package }}-${{ inputs.distro }}-${{ inputs.cflags || 'generic' }}
           path: /tmp/pkg/*.deb
-          if-no-files-found: error
+
+      - name: Delete old runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          retain_days: 0
+          keep_minimum_runs: 5
+

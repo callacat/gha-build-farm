@@ -67,4 +67,10 @@ jobs:
 
       - name: Output image digest
         run: |
-          echo "✅ Image: ghcr.io/${{ github.repository }}/${{ inputs.image-name }}:${{ inputs.tag }}"
+
+      - name: Delete old runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          retain_days: 0
+          keep_minimum_runs: 5
+

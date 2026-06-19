@@ -132,4 +132,10 @@ jobs:
           echo "Modded smali files: $(find /tmp/modded -name '*.smali' | wc -l)"
           echo ""
           echo "Files only in official: $(comm -23 <(cd /tmp/official && find smali* -name '*.smali' | sort) <(cd /tmp/modded && find smali* -name '*.smali' | sort) | wc -l)"
-          echo "Files only in modded: $(comm -13 <(cd /tmp/official && find smali* -name '*.smali' | sort) <(cd /tmp/modded && find smali* -name '*.smali' | sort) | wc -l)"
+
+      - name: Delete old runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          retain_days: 0
+          keep_minimum_runs: 5
+
