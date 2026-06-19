@@ -1,0 +1,135 @@
+name: APK Diff — Official vs Modded
+on:
+  workflow_dispatch:
+    inputs:
+      mod_apk_url:
+        description: 'Modded APK download URL'
+        required: true
+        type: string
+        default: 'https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie_novel_7.2.4.19.apk'
+      official_apk_url:
+        description: 'Official APK download URL'
+        required: true
+        type: string
+
+env:
+  MOD_APK: /tmp/mod.apk
+  OFFICIAL_APK: /tmp/official.apk
+
+jobs:
+  diff:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Install apktool
+        run: |
+          curl -sL "https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar" -o /opt/apktool.jar
+          printf '#!/bin/bash\njava -jar /opt/apktool.jar "$@"\n' > /opt/apktool && chmod +x /opt/apktool
+
+      - name: Download official APK
+        run: |
+          curl -sL "${{ inputs.official_apk_url }}" -o "$OFFICIAL_APK" -w "HTTP %{http_code}, size: %{size_download}\n"
+          ls -lh "$OFFICIAL_APK" && file "$OFFICIAL_APK"
+
+      - name: Download modded APK
+        run: |
+          curl -sL "${{ inputs.mod_apk_url }}" -o "$MOD_APK" -w "HTTP %{http_code}, size: %{size_download}\n"
+          ls -lh "$MOD_APK" && file "$MOD_APK"
+
+      - name: Decode both APKs
+        run: |
+          /opt/apktool d "$OFFICIAL_APK" -o /tmp/official -f 2>&1 | tail -5
+          /opt/apktool d "$MOD_APK" -o /tmp/modded -f 2>&1 | tail -5
+          echo "Official files: $(find /tmp/official -name '*.smali' | wc -l)"
+          echo "Modded files: $(find /tmp/modded -name '*.smali' | wc -l)"
+
+      - name: 1. APK signature / version diff
+        run: |
+          echo "=== VERSION ==="
+          grep 'versionName\|versionCode' /tmp/official/AndroidManifest.xml 2>/dev/null | head -5
+          grep 'versionName\|versionCode' /tmp/modded/AndroidManifest.xml 2>/dev/null | head -5
+          echo ""
+          echo "=== PACKAGE ==="
+          grep 'package=' /tmp/official/AndroidManifest.xml 2>/dev/null
+          grep 'package=' /tmp/modded/AndroidManifest.xml 2>/dev/null
+
+      - name: 2. Permission diff
+        run: |
+          echo "=== OFFICIAL PERMISSIONS ==="
+          grep 'uses-permission' /tmp/official/AndroidManifest.xml 2>/dev/null | sed 's/.*android:name="//;s/".*//' | sort > /tmp/official-perms.txt
+          grep 'uses-permission' /tmp/modded/AndroidManifest.xml 2>/dev/null | sed 's/.*android:name="//;s/".*//' | sort > /tmp/modded-perms.txt
+          echo "=== ADDED IN MOD ==="
+          comm -13 /tmp/official-perms.txt /tmp/modded-perms.txt
+          echo ""
+          echo "=== REMOVED FROM MOD ==="
+          comm -23 /tmp/official-perms.txt /tmp/modded-perms.txt
+
+      - name: 3. Application attributes diff
+        run: |
+          echo "=== OFFICIAL ==="
+          grep '<application' /tmp/official/AndroidManifest.xml 2>/dev/null
+          echo ""
+          echo "=== MODDED ==="
+          grep '<application' /tmp/modded/AndroidManifest.xml 2>/dev/null
+
+      - name: 4. Component diff — Activities/Services/Receivers
+        run: |
+          echo "=== OFFICIAL COMPONENTS ==="
+          grep -E '<activity|<service|<receiver|<provider' /tmp/official/AndroidManifest.xml 2>/dev/null | sed 's/.*android:name="//;s/".*//' | sort > /tmp/official-comps.txt
+          grep -E '<activity|<service|<receiver|<provider' /tmp/modded/AndroidManifest.xml 2>/dev/null | sed 's/.*android:name="//;s/".*//' | sort > /tmp/modded-comps.txt
+          echo "=== ADDED IN MOD ==="
+          comm -13 /tmp/official-comps.txt /tmp/modded-comps.txt
+          echo ""
+          echo "=== REMOVED FROM MOD ==="
+          comm -23 /tmp/official-comps.txt /tmp/modded-comps.txt
+          echo ""
+          echo "=== EXPORTED COMPONENTS IN MOD ==="
+          grep 'android:exported="true"' /tmp/modded/AndroidManifest.xml 2>/dev/null | sed 's/.*android:name="//;s/".*//'
+
+      - name: 5. Smali structural diff — modified files
+        run: |
+          echo "=== FILES ONLY IN OFFICIAL ==="
+          comm -23 <(cd /tmp/official && find smali* -name '*.smali' 2>/dev/null | sort) \
+                  <(cd /tmp/modded && find smali* -name '*.smali' 2>/dev/null | sort) | head -40
+          echo ""
+          echo "=== FILES ONLY IN MODDED ==="
+          comm -13 <(cd /tmp/official && find smali* -name '*.smali' 2>/dev/null | sort) \
+                  <(cd /tmp/modded && find smali* -name '*.smali' 2>/dev/null | sort) | head -40
+          echo ""
+          echo "=== SAME-FILE DIFF COUNT ==="
+          comm -12 <(cd /tmp/official && find smali* -name '*.smali' 2>/dev/null | sort) \
+                  <(cd /tmp/modded && find smali* -name '*.smali' 2>/dev/null | sort) \
+                  | head -100 | while read f; do
+            if ! diff -q "/tmp/official/$f" "/tmp/modded/$f" 2>/dev/null >/dev/null; then
+              echo "MODIFIED: $f"
+            fi
+          done | head -40
+
+      - name: 6. Ad SDK files removed from mod?
+        run: |
+          echo "=== AD SDK IN OFFICIAL ==="
+          find /tmp/official/smali* -path '*bytedance*sdk*' -o -path '*pangle*' 2>/dev/null | wc -l
+          echo "=== AD SDK IN MODDED ==="
+          find /tmp/modded/smali* -path '*bytedance*sdk*' -o -path '*pangle*' 2>/dev/null | wc -l
+          echo ""
+          echo "=== LuckyCat IN OFFICIAL ==="
+          find /tmp/official/smali* -path '*luckycat*' 2>/dev/null | wc -l
+          echo "=== LuckyCat IN MODDED ==="
+          find /tmp/modded/smali* -path '*luckycat*' 2>/dev/null | wc -l
+
+      - name: 7. Summary
+        run: |
+          echo "=== DIFF SUMMARY ==="
+          echo "Official APK size: $(ls -lh /tmp/official.apk | awk '{print $5}')"
+          echo "Modded APK size: $(ls -lh /tmp/mod.apk | awk '{print $5}')"
+          echo ""
+          echo "Official smali files: $(find /tmp/official -name '*.smali' | wc -l)"
+          echo "Modded smali files: $(find /tmp/modded -name '*.smali' | wc -l)"
+          echo ""
+          echo "Files only in official: $(comm -23 <(cd /tmp/official && find smali* -name '*.smali' | sort) <(cd /tmp/modded && find smali* -name '*.smali' | sort) | wc -l)"
+          echo "Files only in modded: $(comm -13 <(cd /tmp/official && find smali* -name '*.smali' | sort) <(cd /tmp/modded && find smali* -name '*.smali' | sort) | wc -l)"
