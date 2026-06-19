@@ -58,4 +58,10 @@ jobs:
           name: reverse-tool-${{ inputs.tool }}${{ inputs.version != 'latest' && format('-{0}', inputs.version) || '' }}-linux-x64
           path: ${{ steps.build.outputs.dir }}/
           if-no-files-found: error
-          retention-days: 90
+
+      - name: Delete old runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          retain_days: 0
+          keep_minimum_runs: 5
+
