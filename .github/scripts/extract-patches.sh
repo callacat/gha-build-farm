@@ -11,7 +11,7 @@ echo "Modded:  $(cat patches/manifest-modded.txt)"
 
 # 2. Lancet getPackageInfo hooks
 for f in zo4/b.smali uo4/l.smali; do
-  found=$(find modded_smali -path "smali*/$f" 2>/dev/null | head -1)
+  found=$(find modded_smali -path "*/$f" 2>/dev/null | head -1)
   if [ -n "$found" ]; then
     dest="patches/$(echo "$found" | sed 's|modded_smali/||')"
     mkdir -p "$(dirname "$dest")"
