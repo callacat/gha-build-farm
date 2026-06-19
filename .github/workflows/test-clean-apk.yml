@@ -1,0 +1,105 @@
+name: Test Clean APK
+on:
+  workflow_dispatch:
+    inputs:
+      artifact_name:
+        description: 'Artifact name from build-clean-apk workflow'
+        required: false
+        default: 'clean-apk-v1'
+      build_run_id:
+        description: 'Optional: specific build run ID to test'
+        required: false
+        default: ''
+  workflow_run:
+    workflows: ['Build Clean APK']
+    types: [completed]
+
+jobs:
+  emulator-test:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    steps:
+      - name: Download APK from build
+        id: download
+        run: |
+          if [ -n "${{ inputs.build_run_id }}" ]; then
+            RUN_ID="${{ inputs.build_run_id }}"
+          elif [ "${{ github.event_name }}" = "workflow_run" ]; then
+            RUN_ID="${{ github.event.workflow_run.id }}"
+          else
+            # Find the latest successful build run
+            RUN_ID=$(gh run list -R ${{ github.repository }} -w "Build Clean APK" \
+              --json 'databaseId,conclusion' --jq '.[] | select(.conclusion=="success") | .databaseId' | head -1)
+          fi
+          echo "Using build run: $RUN_ID"
+          gh run download "$RUN_ID" -n "${{ inputs.artifact_name }}" -R ${{ github.repository }} --dir /tmp/apk
+          ls -lh /tmp/apk/
+          echo "apk_path=$(ls /tmp/apk/*.apk | head -1)" >> $GITHUB_OUTPUT
+
+      - name: Check APK exists
+        run: |
+          APK="${{ steps.download.outputs.apk_path }}"
+          if [ -z "$APK" ] || [ ! -f "$APK" ]; then
+            echo "No APK found"; exit 1
+          fi
+          file "$APK"
+          ls -lh "$APK"
+
+      - name: Setup Android Emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 31
+          target: google_apis
+          arch: x86_64
+          emulator-options: -no-window -no-snapshot -noaudio -memory 2048
+          disable-animations: true
+          script: |
+            echo "=== Waiting for emulator ready ==="
+            adb wait-for-device
+            adb shell settings put global window_animation_scale 0.0
+            adb shell settings put global transition_animation_scale 0.0
+            adb shell settings put global animator_duration_scale 0.0
+
+            echo "=== Install APK ==="
+            adb install -r "${{ steps.download.outputs.apk_path }}"
+            echo "INSTALL EXIT: $?"
+
+            echo "=== List packages ==="
+            adb shell pm list packages | grep dragon.read
+
+            echo "=== Launch app ==="
+            adb shell am start -n com.dragon.read/.pages.splash.SplashActivity
+            sleep 8
+
+            echo "=== Check for crash ==="
+            adb shell dumpsys window windows 2>/dev/null | grep -E 'mCurrentFocus|mFocusedApp' | head -5
+            adb shell dumpsys activity activities 2>/dev/null | grep 'ResumedActivity' | head -3
+
+            echo "=== Logcat errors ==="
+            adb logcat -d -s AndroidRuntime SystemWebView Chrome DEBUG "*:E" 2>/dev/null | grep -v 'WifiStateMachine\|SensorService\|NetworkController\|PowerManager' | head -30
+
+            echo "=== Screenshot ==="
+            adb exec-out screencap -p > /tmp/screenshot.png || echo "SCREENSHOT FAILED"
+            echo "SCREENSHOT_SAVED"
+
+      - name: Check app is running
+        run: |
+          echo "=== CHECK RESULT ==="
+          # Check if screenshot exists
+          ls -lh /tmp/screenshot.png 2>/dev/null || echo "No screenshot"
+
+      - name: Upload screenshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-screenshot
+          path: /tmp/screenshot.png
+          retention-days: 7
+
+      - name: Delete old runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          retain_days: 0
+          keep_minimum_runs: 5
