@@ -105,39 +105,11 @@ jobs:
 
           echo "Permissions cleaned"
 
-      - name: Remove update check & non-core manifest components
+      - name: Restore official CoreComponentFactory
         run: |
           cd /tmp/base
-          # Remove LuckyCat activities
-          sed -i '/com\.bytedance\.ug\.sdk\.luckycat/d' AndroidManifest.xml
-          # Remove push alliance components
-          sed -i '/com\.bytedance\.push\.alliance/d' AndroidManifest.xml
-          sed -i '/com\.bytedance\.push\.notification/d' AndroidManifest.xml
-          sed -i '/com\.bytedance\.push\.event/d' AndroidManifest.xml
-          sed -i '/com\.bytedance\.push\.HwSmartFenceService/d' AndroidManifest.xml
-          # Remove vendor push
-          sed -i '/com\.xiaomi\.mipush/d' AndroidManifest.xml
-          sed -i '/com\.xiaomi\.push/d' AndroidManifest.xml
-          sed -i '/com\.huawei\.hms\.support\.api\.push/d' AndroidManifest.xml
-          sed -i '/com\.vivo\.push/d' AndroidManifest.xml
-          sed -i '/com\.heytap\.msp\.push/d' AndroidManifest.xml
-          sed -i '/com\.dragon\.read\.push/d' AndroidManifest.xml
-          sed -i '/com\.ss\.android\.message/d' AndroidManifest.xml
-          # Remove Tinker
-          sed -i '/com\.tencent\.tinker/d' AndroidManifest.xml
-          # Remove downloader
-          sed -i '/com\.ss\.android\.downloadlib/d' AndroidManifest.xml
-          # Remove Alipay
-          sed -i '/com\.alipay\.sdk/d' AndroidManifest.xml
-          # Remove RedPacket
-          sed -i '/com\.dragon\.read\.appwidget\.redpacket/d' AndroidManifest.xml
-          # Remove coldstart
-          sed -i '/com\.dragon\.read\.coldstart/d' AndroidManifest.xml
-          # Remove Pandora / AppFactory (keep official stock)
-          # Actually we KEEP the official CoreComponentFactory
-          sed -i 's/android:appComponentFactory="[^"]*"/android:appComponentFactory="androidx.core.app.CoreComponentFactory"/' AndroidManifest.xml
-
-          echo "Manifest components cleaned"
+          # Working from official APK baseline, ComponentFactory is already stock
+          echo "Using official APK — CoreComponentFactory already at android default"
 
       # ── Phase 2: Delete SDK directories ──
       - name: Delete ad SDK directories
