@@ -1,23 +1,13 @@
 name: Build Clean APK
 on:
-  workflow_dispatch:
-    inputs:
-      apk_name:
-        description: 'APK file name'
-        required: false
-        default: 'novelapp_45466779a_v1327_72432_72432_d367_1781612828.apk'
-
+  workflow_dispatch: {}
 env:
-  OFFICIAL_URL: https://lf9-apk.ugapk.cn/package/apk/novelapp/1327_72432_72432/15/novelapp_45466779a_v1327_72432_72432_d367_1781612828.apk?v=1781612834
-  MODDED_URL: https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie_novel_7.2.4.19.apk
-  APK_NAME: ${{ inputs.apk_name }}
-
+  BASE_URL: https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie_novel_7.2.4.19.apk
+  APK_NAME: fanqie_novel_7.2.4.19.apk
 jobs:
-  setup:
+  build:
     runs-on: ubuntu-22.04
     timeout-minutes: 30
-    outputs:
-      artifact: ${{ steps.upload.outputs.artifact }}
     steps:
       - uses: actions/setup-java@v4
         with:
@@ -31,249 +21,82 @@ jobs:
           curl -sL "https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar" -o /opt/apktool.jar
           printf '#!/bin/bash\njava -jar /opt/apktool.jar "$@"\n' > /opt/apktool && chmod +x /opt/apktool
 
-      - name: Download official APK
+      - name: Download modded APK (has arm64 libs)
         run: |
-          # Check release cache first
-          if gh release download apk-assets -p "official_$APK_NAME" -R ${{ github.repository }} --dir /tmp 2>/dev/null; then
-            echo "Downloaded from release cache"
-            mv /tmp/official_$APK_NAME /tmp/$APK_NAME
-          else
-            curl -sL "$OFFICIAL_URL" -o /tmp/$APK_NAME -w "HTTP %{http_code}, size: %{size_download}\n"
-            # Cache for next run (best effort)
-            gh release upload apk-assets "/tmp/$APK_NAME#official_$APK_NAME" \
-              -R ${{ github.repository }} --clobber 2>/dev/null || true
-          fi
+          curl -sL "$BASE_URL" -o /tmp/$APK_NAME -w "HTTP %{http_code}, size: %{size_download}\n"
           ls -lh /tmp/$APK_NAME
 
-      - name: Decode official APK
+      - name: Decode
         run: |
-          /opt/apktool d /tmp/$APK_NAME -o /tmp/base -f 2>&1 | tail -5
-          echo "Smali files: $(find /tmp/base -name '*.smali' | wc -l)"
+          /opt/apktool d /tmp/$APK_NAME -o /tmp/base -f 2>&1 | tail -3
+          echo "libs: $(find /tmp/base/lib -name '*.so' | wc -l) total"
+          echo "arm64: $(ls /tmp/base/lib/arm64-v8a/*.so 2>/dev/null | wc -l)"
+          echo "smali: $(find /tmp/base -name '*.smali' | wc -l)" >> $GITHUB_ENV
+          echo "BEFORE=$(find /tmp/base -name '*.smali' | wc -l)" >> $GITHUB_ENV
 
-      # ── Phase 1: Manifest cleanup ──
-      # ponytail: skip permission stripping for now — permissions are just
-      # declarations. Code that uses them is already deleted in Phase 2.
-      # Add perms back when manifest-only break is confirmed.
-
-      # ── Phase 2: Delete SDK directories ──
-      - name: Count files before deletion
-        run: |
-          echo "BEFORE_DELETION=$(find /tmp/base -name '*.smali' | wc -l)" >> $GITHUB_ENV
-
-      - name: Delete ad SDK directories
+      - name: Restore official appComponentFactory
         run: |
           cd /tmp/base
-          # Delete all bytedance ad SDK files across smali_classes* dirs
-          # Use direct path patterns that match the actual directory structure
-          echo "=== FINDING AD SDK DIRECTORIES ==="
-          find . -type d -path '*/com/bytedance/android/ad' 2>/dev/null | while read d; do
-            COUNT=$(find "$d" -type f 2>/dev/null | wc -l)
-            echo "DELETING: $d ($COUNT files)"
-            rm -rf "$d"
-          done
-          # Also remove other known ad-related paths
-          find . -type d -path '*/com/pangle*' 2>/dev/null | while read d; do
-            echo "DELETING: $d"
-            rm -rf "$d"
-          done
-          find . -type d -path '*/com/bytedance/sdk/open' 2>/dev/null | while read d; do
-            echo "DELETING: $d"
-            rm -rf "$d"
-          done
+          sed -i 's/android:appComponentFactory="[^"]*"/android:appComponentFactory="androidx.core.app.CoreComponentFactory"/' AndroidManifest.xml
+          echo "appComponentFactory restored"
 
-      - name: Delete LuckyCat directory
+      # Delete SDKs
+      - name: Delete ad SDK
         run: |
           cd /tmp/base
-          find . -type d -path '*/com/bytedance/ug/sdk/luckycat' 2>/dev/null | while read d; do
-            echo "DELETING: $d ($(find "$d" -type f 2>/dev/null | wc -l) files)"
-            rm -rf "$d"
-          done
-          find . -type d -path '*/com/bytedance/ug/sdk/luckydog' 2>/dev/null | while read d; do
-            echo "DELETING: $d ($(find "$d" -type f 2>/dev/null | wc -l) files)"
-            rm -rf "$d"
-          done
-
-      - name: Delete push alliance
-        run: |
-          cd /tmp/base
-          find . -type d -path '*/com/bytedance/push' 2>/dev/null | while read d; do
-            echo "DELETING: $d ($(find "$d" -type f 2>/dev/null | wc -l) files)"
-            rm -rf "$d"
-          done
-          find . -type d -path '*/com/ss/android/message' 2>/dev/null | while read d; do
-            echo "DELETING: $d"
-            rm -rf "$d"
-          done
-
-      - name: Delete device register & tracking
-        run: |
-          cd /tmp/base
-          find . -type d -path '*/com/ss/android/deviceregister' 2>/dev/null | while read d; do
-            echo "DELETING: $d ($(find "$d" -type f 2>/dev/null | wc -l) files)"
-            rm -rf "$d"
-          done
-          find . -type d -path '*/com/ss/android/agilelogger' 2>/dev/null | while read d; do
-            echo "DELETING: $d"
-            rm -rf "$d"
-          done
-          # OAID / deviceid helpers
-          find . -type d -path '*/com/bytedance/ss/a/a' 2>/dev/null | while read d; do
-            echo "DELETING: $d"
-            rm -rf "$d"
-          done
-
-      - name: Delete monitor/collector
-        run: |
-          cd /tmp/base
-          find . -type d -path '*/com/ss/android/mannor' 2>/dev/null | while read d; do
-            echo "DELETING: $d"
-            rm -rf "$d"
-          done
-          find . -type d -path '*/com/ss/android/bd' 2>/dev/null | while read d; do
-            echo "DELETING: $d"
-            rm -rf "$d"
-          done
-
-      - name: Delete vendor push libs
-        run: |
-          cd /tmp/base
-          for dir in xiaomi huawei honor vivo oppo heytop; do
-            find . -type d -path "*/push.sdk.$dir" -o -path "*/push/$dir" 2>/dev/null | while read d; do
-              echo "DELETING: $d"
-              rm -rf "$d"
+          for dir in */com/bytedance/android/ad */com/pangle; do
+            find . -type d -path "$dir" 2>/dev/null | while read d; do
+              c=$(find "$d" -type f | wc -l); echo "DEL: $d ($c)"; rm -rf "$d"
             done
           done
 
-      - name: Delete Tinker (hot patch)
+      - name: Delete LuckyCat
         run: |
           cd /tmp/base
-          find . -type d -path '*/com/tencent/tinker' 2>/dev/null | while read d; do
-            echo "DELETING: $d"
-            rm -rf "$d"
+          find . -type d -path '*/com/bytedance/ug/sdk/luckycat' -o -path '*/com/bytedance/ug/sdk/luckydog' 2>/dev/null | while read d; do
+            c=$(find "$d" -type f | wc -l); echo "DEL: $d ($c)"; rm -rf "$d"
           done
 
-      - name: Delete downloader
+      - name: Delete push + device register + tracking
         run: |
           cd /tmp/base
-          find . -type d -path '*/com/ss/android/downloadlib' 2>/dev/null | while read d; do
-            echo "DELETING: $d"
-            rm -rf "$d"
-          done
-          find . -type d -path '*/com/ss/android/downloader' 2>/dev/null | while read d; do
-            echo "DELETING: $d"
-            rm -rf "$d"
+          for path in */com/bytedance/push */com/ss/android/message */com/ss/android/deviceregister */com/ss/android/mannor */com/ss/android/agilelogger */com/tencent/tinker */com/ss/android/downloadlib */com/alipay; do
+            find . -type d -path "$path" 2>/dev/null | while read d; do
+              c=$(find "$d" -type f 2>/dev/null | wc -l); echo "DEL: $d ($c)"; rm -rf "$d"
+            done
           done
 
-      - name: Delete Alipay SDK
+      - name: Delete widgets
         run: |
           cd /tmp/base
-          find . -type d -path '*/com/alipay' 2>/dev/null | while read d; do
-            echo "DELETING: $d"
-            rm -rf "$d"
+          for path in */com/dragon/read/appwidget/redpacket */com/dragon/read/appwidget/redpacketpattern */com/dragon/read/appwidget/welfaretask */com/dragon/read/coldstart */com/dragon/read/appwidget/ecomorder; do
+            find . -type d -path "$path" 2>/dev/null | while read d; do
+              echo "DEL: $d"; rm -rf "$d"
+            done
           done
-          find . -type d -path '*/com/ta/utdid2' 2>/dev/null | while read d; do
-            echo "DELETING: $d"
-            rm -rf "$d"
-          done
+          echo "After: $(find . -name '*.smali' | wc -l)"
 
-      - name: Delete RedPacket / ColdStart widgets
+      - name: Build
         run: |
-          cd /tmp/base
-          find . -type d -path '*/com/dragon/read/appwidget/redpacket' 2>/dev/null | while read d; do
-            echo "DELETING: $d"
-            rm -rf "$d"
-          done
-          find . -type d -path '*/com/dragon/read/appwidget/redpacketpattern' 2>/dev/null | while read d; do
-            echo "DELETING: $d"
-            rm -rf "$d"
-          done
-          find . -type d -path '*/com/dragon/read/appwidget/welfaretask' 2>/dev/null | while read d; do
-            echo "DELETING: $d"
-            rm -rf "$d"
-          done
-          find . -type d -path '*/com/dragon/read/coldstart' 2>/dev/null | while read d; do
-            echo "DELETING: $d"
-            rm -rf "$d"
-          done
-          find . -type d -path '*/com/dragon/read/appwidget/ecomorder' 2>/dev/null | while read d; do
-            echo "DELETING: $d"
-            rm -rf "$d"
-          done
-
-      - name: Summary of deleted files
-        run: |
-          echo "=== BEFORE/AFTER ==="
-          echo "Before: $BEFORE_DELETION smali files"
-          echo "After: $(find /tmp/base -name '*.smali' | wc -l) smali files"
-
-      # ── Phase 3: Extract arm64-v8a libs from modded APK ──
-      - name: Download modded APK for arm64-v8a libs
-        run: |
-          curl -sL "$MODDED_URL" -o /tmp/modded.apk -w "HTTP %{http_code}, size: %{size_download}\n"
-          ls -lh /tmp/modded.apk
-
-      - name: Extract arm64-v8a so files from modded APK
-        run: |
-          mkdir -p /tmp/modded_lib
-          cd /tmp/modded_lib
-          unzip -q -o /tmp/modded.apk 'lib/arm64-v8a/*' 2>&1
-          echo "arm64-v8a libs extracted: $(find lib/arm64-v8a -name '*.so' 2>/dev/null | wc -l)"
-          ls lib/arm64-v8a/ 2>/dev/null | head -20
-
-      - name: Inject arm64-v8a libs into clean build
-        run: |
-          cd /tmp/base
-          mkdir -p lib/arm64-v8a
-          cp -a /tmp/modded_lib/lib/arm64-v8a/*.so lib/arm64-v8a/ 2>/dev/null
-          echo "arm64-v8a: $(ls lib/arm64-v8a/*.so 2>/dev/null | wc -l) libs"
-          echo "armeabi-v7a: $(ls lib/armeabi-v7a/*.so 2>/dev/null | wc -l) libs"
-      - name: Rebuild APK
-        run: |
-          /opt/apktool b /tmp/base -o /tmp/unsigned.apk 2>&1 | tail -10
+          /opt/apktool b /tmp/base -o /tmp/unsigned.apk 2>&1 | tail -5
           ls -lh /tmp/unsigned.apk
 
-      - name: Sign and align
+      - name: Sign
         run: |
-          # Generate keystore
           keytool -genkey -v -keystore /tmp/debug.keystore -alias debug \
             -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass android -keypass android \
-            -dname "CN=CleanNovel, O=CleanNovel, C=CN" 2>&1
+            -dname "CN=Clean, O=Clean, C=CN" 2>&1
+          jarsigner -sigalg SHA1withRSA -digestalg SHA1 \
+            -keystore /tmp/debug.keystore -storepass android \
+            /tmp/unsigned.apk debug 2>&1 | tail -3
+          mv /tmp/unsigned.apk /tmp/clean.apk
+          ls -lh /tmp/clean.apk && echo "SIGNED OK"
 
-          # Verify APK contents
-          echo "=== APK CONTENTS (lib) ==="
-          unzip -l /tmp/unsigned.apk | grep 'lib/' | head -20
-
-          # Install SDK build-tools for zipalign+apksigner
-          echo "y" | ${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}/cmdline-tools/latest/bin/sdkmanager \
-            "build-tools;35.0.0" 2>/dev/null || true
-          ZIPALIGN=$(find /usr/local/lib/android/sdk -name zipalign 2>/dev/null | head -1)
-          APKSIGNER=$(find /usr/local/lib/android/sdk -name apksigner 2>/dev/null | head -1)
-
-          if [ -n "$ZIPALIGN" ] && [ -n "$APKSIGNER" ]; then
-            echo "Using SDK tools: zipalign + apksigner"
-            $ZIPALIGN -f -v 4 /tmp/unsigned.apk /tmp/aligned.apk 2>&1
-            $APKSIGNER sign --ks /tmp/debug.keystore --ks-pass pass:android \
-              --ks-key-alias debug /tmp/aligned.apk 2>&1
-            mv /tmp/aligned.apk /tmp/clean.apk
-          else
-            echo "Fallback: jarsigner"
-            jarsigner -verbose -sigalg SHA1withRSA -digestalg SHA1 \
-              -keystore /tmp/debug.keystore -storepass android \
-              /tmp/unsigned.apk debug 2>&1 | tail -5
-            mv /tmp/unsigned.apk /tmp/clean.apk
-          fi
-
-          # Verify APK
-          echo "=== FINAL APK ==="
-          ls -lh /tmp/clean.apk
-          file /tmp/clean.apk
-          echo "SIGNED OK"
-
-      - name: Upload clean APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: clean-apk-v1
+          name: clean-apk-v2
           path: /tmp/clean.apk
           retention-days: 30
 
