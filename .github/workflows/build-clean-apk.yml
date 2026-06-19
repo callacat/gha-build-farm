@@ -2,12 +2,15 @@ name: Build Clean APK
 on:
   workflow_dispatch: {}
 env:
-  BASE_URL: https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie_novel_7.2.4.19.apk
-  APK_NAME: fanqie_novel_7.2.4.19.apk
+  OFFICIAL_URL: https://cloud.dsdog.tk/d/google/temp/%E7%95%AA%E8%8C%84%E5%85%8D%E8%B4%B9%E5%B0%8F%E8%AF%B4_7.2.4.32.apk?sign=xUavME2Rt4Vf1FTbCppPq7sU8bRUFh29hrbIhdsXon4=:0
+  APK_NAME: fanqie_novel_7.2.4.32.apk
 jobs:
   build:
     runs-on: ubuntu-22.04
     timeout-minutes: 30
+    permissions:
+      contents: write
+      actions: write
     steps:
       - uses: actions/setup-java@v4
         with:
@@ -16,29 +19,27 @@ jobs:
 
       - name: Install tools
         run: |
-          curl -sL "https://github.com/skylot/jadx/releases/download/v1.5.5/jadx-1.5.5.zip" -o /tmp/jadx.zip
-          unzip -q /tmp/jadx.zip -d /opt/jadx && chmod +x /opt/jadx/bin/jadx
           curl -sL "https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar" -o /opt/apktool.jar
           printf '#!/bin/bash\njava -jar /opt/apktool.jar "$@"\n' > /opt/apktool && chmod +x /opt/apktool
 
-      - name: Download modded APK (has arm64 libs)
+      - name: Download official arm64 APK
         run: |
-          curl -sL "$BASE_URL" -o /tmp/$APK_NAME -w "HTTP %{http_code}, size: %{size_download}\n"
+          curl -sL "$OFFICIAL_URL" -o /tmp/$APK_NAME -w "HTTP %{http_code}, size: %{size_download}\n"
           ls -lh /tmp/$APK_NAME
+          unzip -l /tmp/$APK_NAME 'lib/*' 2>/dev/null | head -5
+
+      - name: Upload official APK to release cache
+        run: |
+          gh release upload apk-assets "/tmp/$APK_NAME#official_$APK_NAME" \
+            -R ${{ github.repository }} --clobber 2>/dev/null || true
+          echo "Cached"
 
       - name: Decode
         run: |
           /opt/apktool d /tmp/$APK_NAME -o /tmp/base -f 2>&1 | tail -3
-          echo "libs: $(find /tmp/base/lib -name '*.so' | wc -l) total"
-          echo "arm64: $(ls /tmp/base/lib/arm64-v8a/*.so 2>/dev/null | wc -l)"
-          echo "smali: $(find /tmp/base -name '*.smali' | wc -l)" >> $GITHUB_ENV
+          echo "libs: $(find /tmp/base/lib -name '*.so' | wc -l)"
+          find /tmp/base/lib -type d | sort
           echo "BEFORE=$(find /tmp/base -name '*.smali' | wc -l)" >> $GITHUB_ENV
-
-      - name: Restore official appComponentFactory
-        run: |
-          cd /tmp/base
-          sed -i 's/android:appComponentFactory="[^"]*"/android:appComponentFactory="androidx.core.app.CoreComponentFactory"/' AndroidManifest.xml
-          echo "appComponentFactory restored"
 
       # Delete SDKs
       - name: Delete ad SDK
@@ -46,22 +47,22 @@ jobs:
           cd /tmp/base
           for dir in */com/bytedance/android/ad */com/pangle; do
             find . -type d -path "$dir" 2>/dev/null | while read d; do
-              c=$(find "$d" -type f | wc -l); echo "DEL: $d ($c)"; rm -rf "$d"
+              c=$(find "$d" -type f 2>/dev/null | wc -l); echo "DEL: $d ($c files)"; rm -rf "$d"
             done
           done
 
       - name: Delete LuckyCat
         run: |
           cd /tmp/base
-          find . -type d -path '*/com/bytedance/ug/sdk/luckycat' -o -path '*/com/bytedance/ug/sdk/luckydog' 2>/dev/null | while read d; do
+          find . -type d -name 'luckycat' -o -type d -name 'luckydog' 2>/dev/null | while read d; do
             c=$(find "$d" -type f | wc -l); echo "DEL: $d ($c)"; rm -rf "$d"
           done
 
-      - name: Delete push + device register + tracking
+      - name: Delete push + tracking + Tinker + Alipay
         run: |
           cd /tmp/base
-          for path in */com/bytedance/push */com/ss/android/message */com/ss/android/deviceregister */com/ss/android/mannor */com/ss/android/agilelogger */com/tencent/tinker */com/ss/android/downloadlib */com/alipay; do
-            find . -type d -path "$path" 2>/dev/null | while read d; do
+          for path in push deviceregister mannor agilelogger message tinker downloadlib alipay; do
+            find . -type d -name "$path" 2>/dev/null | while read d; do
               c=$(find "$d" -type f 2>/dev/null | wc -l); echo "DEL: $d ($c)"; rm -rf "$d"
             done
           done
@@ -69,12 +70,14 @@ jobs:
       - name: Delete widgets
         run: |
           cd /tmp/base
-          for path in */com/dragon/read/appwidget/redpacket */com/dragon/read/appwidget/redpacketpattern */com/dragon/read/appwidget/welfaretask */com/dragon/read/coldstart */com/dragon/read/appwidget/ecomorder; do
-            find . -type d -path "$path" 2>/dev/null | while read d; do
-              echo "DEL: $d"; rm -rf "$d"
-            done
+          for w in redpacket redpacketpattern welfaretask ecomorder coldstart; do
+            find . -type d -name "$w" 2>/dev/null | while read d; do echo "DEL: $d"; rm -rf "$d"; done
           done
-          echo "After: $(find . -name '*.smali' | wc -l)"
+
+      - name: Summary
+        run: |
+          echo "Before: $BEFORE smali files"
+          echo "After: $(find /tmp/base -name '*.smali' | wc -l) smali files"
 
       - name: Build
         run: |
@@ -96,7 +99,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: clean-apk-v2
+          name: clean-apk-v3
           path: /tmp/clean.apk
           retention-days: 30
 
