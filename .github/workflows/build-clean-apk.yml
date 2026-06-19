@@ -50,68 +50,15 @@ jobs:
           echo "Smali files: $(find /tmp/base -name '*.smali' | wc -l)"
 
       # ── Phase 1: Manifest cleanup ──
-      - name: Clean AndroidManifest.xml
-        run: |
-          cd /tmp/base
-
-          # Remove dangerous permissions (keep basic INTERNET/NETWORK/WAKE_LOCK)
-          # We edit the manifest in-place
-          # REMOVE: CAMERA, LOCATION, CONTACTS, SMS-adjacent, MIC, STORAGE, badging
-          sed -i '/android.permission.CAMERA/d' AndroidManifest.xml
-          sed -i '/android.permission.ACCESS_FINE_LOCATION/d' AndroidManifest.xml
-          sed -i '/android.permission.ACCESS_COARSE_LOCATION/d' AndroidManifest.xml
-          sed -i '/android.permission.READ_CONTACTS/d' AndroidManifest.xml
-          sed -i '/android.permission.RECORD_AUDIO/d' AndroidManifest.xml
-          sed -i '/android.permission.MANAGE_EXTERNAL_STORAGE/d' AndroidManifest.xml
-          sed -i '/android.permission.READ_EXTERNAL_STORAGE/d' AndroidManifest.xml
-          sed -i '/android.permission.WRITE_EXTERNAL_STORAGE/d' AndroidManifest.xml
-          sed -i '/android.permission.REQUEST_INSTALL_PACKAGES/d' AndroidManifest.xml
-          sed -i '/android.permission.QUERY_ALL_PACKAGES/d' AndroidManifest.xml
-          sed -i '/android.permission.SYSTEM_ALERT_WINDOW/d' AndroidManifest.xml
-          sed -i '/android.permission.DETECT_SCREEN_CAPTURE/d' AndroidManifest.xml
-          sed -i '/android.permission.DETECT_SCREEN_RECORDING/d' AndroidManifest.xml
-          sed -i '/android.permission.HIGH_SAMPLING_RATE_SENSORS/d' AndroidManifest.xml
-          sed -i '/android.permission.HIDE_OVERLAY_WINDOWS/d' AndroidManifest.xml
-          sed -i '/android.permission.USE_BIOMETRIC/d' AndroidManifest.xml
-          sed -i '/android.permission.USE_FINGERPRINT/d' AndroidManifest.xml
-          sed -i '/android.permission.WRITE_CALENDAR/d' AndroidManifest.xml
-          sed -i '/android.permission.FLASHLIGHT/d' AndroidManifest.xml
-          sed -i '/android.permission.BROADCAST_STICKY/d' AndroidManifest.xml
-          # Remove vendor badging permissions
-          sed -i '/com\.sec\.android\.provider\.badge/d' AndroidManifest.xml
-          sed -i '/com\.htc\.launcher\.permission/d' AndroidManifest.xml
-          sed -i '/com\.sonyericsson\.home/d' AndroidManifest.xml
-          sed -i '/com\.sonymobile\.home/d' AndroidManifest.xml
-          sed -i '/com\.majeur\.launcher/d' AndroidManifest.xml
-          sed -i '/com\.huawei\.android\.launcher/d' AndroidManifest.xml
-          sed -i '/com\.oppo\.launcher/d' AndroidManifest.xml
-          sed -i '/com\.anddoes\.launcher/d' AndroidManifest.xml
-          sed -i '/com\.xiaomi\.market/d' AndroidManifest.xml
-          sed -i '/com\.huawei\.appmarket/d' AndroidManifest.xml
-          sed -i '/com\.hihonor\.appmarket/d' AndroidManifest.xml
-          sed -i '/android\.launcher\.permission/d' AndroidManifest.xml
-          sed -i '/android\.permission\.INSTALL_SHORTCUT/d' AndroidManifest.xml
-          sed -i '/android\.permission\.UNINSTALL_SHORTCUT/d' AndroidManifest.xml
-          sed -i '/android\.permission\.READ_APP_BADGE/d' AndroidManifest.xml
-          sed -i '/android\.permission\.UPDATE_APP_BADGE/d' AndroidManifest.xml
-          # Remove com.soter, com.dragon.read.permission
-          sed -i '/com\.soter\.permission/d' AndroidManifest.xml
-          sed -i '/com\.dragon\.read\.permission/d' AndroidManifest.xml
-          sed -i '/com\.tencent\.msdk\.permission/d' AndroidManifest.xml
-          sed -i '/com\.google\.android\.launcher/d' AndroidManifest.xml
-          sed -i '/com\.hihonor\.push\.permission/d' AndroidManifest.xml
-          # Remove accelerometer hardware requirement
-          sed -i '/android\.hardware\.sensor\.accelerometer/d' AndroidManifest.xml
-
-          echo "Permissions cleaned"
-
-      - name: Restore official CoreComponentFactory
-        run: |
-          cd /tmp/base
-          # Working from official APK baseline, ComponentFactory is already stock
-          echo "Using official APK — CoreComponentFactory already at android default"
+      # ponytail: skip permission stripping for now — permissions are just
+      # declarations. Code that uses them is already deleted in Phase 2.
+      # Add perms back when manifest-only break is confirmed.
 
       # ── Phase 2: Delete SDK directories ──
+      - name: Count files before deletion
+        run: |
+          echo "BEFORE_DELETION=$(find /tmp/base -name '*.smali' | wc -l)" >> $GITHUB_ENV
+
       - name: Delete ad SDK directories
         run: |
           cd /tmp/base
@@ -250,7 +197,7 @@ jobs:
       - name: Summary of deleted files
         run: |
           echo "=== BEFORE/AFTER ==="
-          echo "Before: 253353 smali files (from modded)"
+          echo "Before: $BEFORE_DELETION smali files"
           echo "After: $(find /tmp/base -name '*.smali' | wc -l) smali files"
 
       # ── Phase 3: Build ──
