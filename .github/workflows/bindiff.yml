@@ -1,4 +1,4 @@
-name: Binary diff tool
+name: bindiff
 on:
   workflow_dispatch: {}
 env:
@@ -9,23 +9,18 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:
-      - uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
       - run: curl -sL "$OURL" -o /tmp/o.apk -w "OFF: HTTP %{http_code}, size: %{size_download}\n"
       - run: curl -sL "$MURL" -o /tmp/m.apk -w "MOD: HTTP %{http_code}, size: %{size_download}\n"
 
-      - name: Size diff
+      - name: Size compare
         run: |
-          unzip -l /tmp/o.apk 'lib/arm64-v8a/*.so' 2>/dev/null | awk '/\.so/{print $4,$1}' | sort > /tmp/o.txt
-          unzip -l /tmp/m.apk 'lib/arm64-v8a/*.so' 2>/dev/null | awk '/\.so/{print $4,$1}' | sort > /tmp/m.txt
-          echo "CHANGED:"; join /tmp/o.txt /tmp/m.txt | awk '{d=$2-$3;d=d<0?-d:d}d>100{print "  "$1" off="$2" mod="$3" delta="($2-$3)}'
-          echo "MOD-ONLY:"; join -v2 /tmp/o.txt /tmp/m.txt | awk '{print "  "$1}'
-          echo "OFF-ONLY:"; join -v1 /tmp/o.txt /tmp/m.txt | awk '{print "  "$1}'
+          unzip -l /tmp/o.apk 'lib/arm64-v8a/*.so' 2>/dev/null | awk '/\.so/{print $4,$1}' | sort > /tmp/oa.txt
+          unzip -l /tmp/m.apk 'lib/arm64-v8a/*.so' 2>/dev/null | awk '/\.so/{print $4,$1}' | sort > /tmp/ma.txt
+          join /tmp/oa.txt /tmp/ma.txt | awk '{d=$2-$3;d=d<0?-d:d}d>100{print "DIFF: "$1" off="$2" mod="$3}'
+          join -v2 /tmp/oa.txt /tmp/ma.txt | awk '{print "MODONLY: "$1}'
+          join -v1 /tmp/oa.txt /tmp/ma.txt | awk '{print "OFFONLY: "$1}'
 
-      - name: Hex diff
+      - name: Hex diff changed libs
         run: |
           mkdir -p /tmp/ol /tmp/ml
           unzip -q /tmp/o.apk 'lib/arm64-v8a/*.so' -d /tmp/ol
@@ -35,33 +30,46 @@ jobs:
             mf="/tmp/ml/lib/arm64-v8a/$so"; [ ! -f "$mf" ] && continue
             s1=$(stat -c%s "$so"); s2=$(stat -c%s "$mf"); d=$((s1-s2)); d=${d#-}
             [ "$d" -le 100 ] && continue
-            python3 -c "
-import sys
-d1=open('/tmp/ol/lib/arm64-v8a/$so','rb').read()
-d2=open('$mf','rb').read()
-n=0
+            export FN="$so" FP="$mf" SZA="$s1" SZB="$s2"
+            python3 << 'XEOF'
+import os
+so=os.environ['FN']
+d1=open('/tmp/ol/lib/arm64-v8a/'+so,'rb').read()
+d2=open(os.environ['FP'],'rb').read()
+r=0
 for i in range(0,min(len(d1),len(d2)),16):
     if d1[i:i+16]!=d2[i:i+16]:
-        if n<8:
-            a=' '.join('%02x'%b for b in d1[i:i+16]); sa=''.join(chr(b) if 32<=b<=126 else '.' for b in d1[i:i+16])
-            b=' '.join('%02x'%b for b in d2[i:i+16]); sb=''.join(chr(b) if 32<=b<=126 else '.' for b in d2[i:i+16])
-            print('@0x%05x'%i); print('  O: '+a+'  '+sa); print('  M: '+b+'  '+sb)
-        n+=1
-print('$so: '+str(n)+' diff regions off=$s1 mod=$s2')
-"
+        if r<8:
+            a=' '.join('%02x'%b for b in d1[i:i+16])
+            b=' '.join('%02x'%b for b in d2[i:i+16])
+            sa=''.join(chr(b) if 32<=b<=126 else '.' for b in d1[i:i+16])
+            sb=''.join(chr(b) if 32<=b<=126 else '.' for b in d2[i:i+16])
+            print('@%05x'%i);print('O:'+a+' '+sa);print('M:'+b+' '+sb)
+        r+=1
+print(so+':'+str(r)+' off='+os.environ['SZA']+' mod='+os.environ['SZB'])
+XEOF
           done
 
-      - name: DEX hash
+      - name: DEX hash compare
         run: |
-          python3 -c "
+          python3 << 'XEOF'
 import zipfile,hashlib
-o=zipfile.ZipFile('/tmp/o.apk'); m=zipfile.ZipFile('/tmp/m.apk')
+o=zipfile.ZipFile('/tmp/o.apk')
+m=zipfile.ZipFile('/tmp/m.apk')
+seen=set()
 for f in sorted(set(o.namelist())|set(m.namelist())):
-    if not f.endswith('.dex'): continue
-    od=o.read(f) if f in o.namelist() else None; md=m.read(f) if f in m.namelist() else None
+    if not f.endswith('.dex') or f in seen: continue
+    seen.add(f)
+    od=o.read(f) if f in o.namelist() else None
+    md=m.read(f) if f in m.namelist() else None
     if od and md:
         if hashlib.sha256(od).hexdigest()!=hashlib.sha256(md).hexdigest():
-            print('DIFF: %s off=%d mod=%d'%(f,len(od),len(md)))
-    elif od: print('OFF-ONLY: %s (%d)'%(f,len(od)))
-    elif md: print('MOD-ONLY: %s (%d)'%(f,len(md)))
-"
+            print('DIFF:'+f+' off='+str(len(od))+' mod='+str(len(md)))
+    elif od: print('OFFONLY:'+f+' ('+str(len(od))+')')
+    elif md: print('MODONLY:'+f+' ('+str(len(md))+')')
+XEOF
+
+      - uses: Mattraks/delete-workflow-runs@v2
+        with:
+          retain_days: 0
+          keep_minimum_runs: 5
