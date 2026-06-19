@@ -35,7 +35,14 @@ jobs:
               --json 'databaseId,conclusion' --jq '.[] | select(.conclusion=="success") | .databaseId' | head -1)
           fi
           echo "Using build run: $RUN_ID"
-          gh run download "$RUN_ID" -n "${{ inputs.artifact_name }}" -R ${{ github.repository }} --dir /tmp/apk
+          ARTIFACT_NAME="${{ inputs.artifact_name }}"
+          if [ -z "$ARTIFACT_NAME" ]; then
+            # Auto-detect artifact from the build run
+            ARTIFACT_NAME=$(gh run view "$RUN_ID" -R ${{ github.repository }} --json 'artifacts' \
+              --jq '.artifacts[] | select(.name | startswith("clean-apk")) | .name' | head -1)
+          fi
+          echo "Downloading artifact: $ARTIFACT_NAME"
+          gh run download "$RUN_ID" -n "$ARTIFACT_NAME" -R ${{ github.repository }} --dir /tmp/apk
           ls -lh /tmp/apk/
           echo "apk_path=$(ls /tmp/apk/*.apk | head -1)" >> $GITHUB_OUTPUT
 

@@ -62,17 +62,22 @@ jobs:
       - name: Delete ad SDK directories
         run: |
           cd /tmp/base
-          # Find and delete ad SDK dirs
-          for path in \
-            */com/bytedance/android/ad \
-            */com/pangle \
-            */com/bytedance/sdk/open \
-            */com/bytedance/tea \
-            */com/bytedance/bdmediation; do
-            find . -type d -path "$path" 2>/dev/null | while read d; do
-              echo "DELETING: $d ($(find "$d" -type f 2>/dev/null | wc -l) files)"
-              rm -rf "$d"
-            done
+          # Delete all bytedance ad SDK files across smali_classes* dirs
+          # Use direct path patterns that match the actual directory structure
+          echo "=== FINDING AD SDK DIRECTORIES ==="
+          find . -type d -path '*/com/bytedance/android/ad' 2>/dev/null | while read d; do
+            COUNT=$(find "$d" -type f 2>/dev/null | wc -l)
+            echo "DELETING: $d ($COUNT files)"
+            rm -rf "$d"
+          done
+          # Also remove other known ad-related paths
+          find . -type d -path '*/com/pangle*' 2>/dev/null | while read d; do
+            echo "DELETING: $d"
+            rm -rf "$d"
+          done
+          find . -type d -path '*/com/bytedance/sdk/open' 2>/dev/null | while read d; do
+            echo "DELETING: $d"
+            rm -rf "$d"
           done
 
       - name: Delete LuckyCat directory
