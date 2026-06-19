@@ -1,74 +1,100 @@
-name: Build Clean APK
+name: Build Patched Fanqie Novel APK
+
 on:
-  workflow_dispatch: {}
-env:
-  OURL: https://cloud.dsdog.tk/d/google/temp/%E7%95%AA%E8%8C%84%E5%85%8D%E8%B4%B9%E5%B0%8F%E8%AF%B4_7.2.4.32.apk?sign=xUavME2Rt4Vf1FTbCppPq7sU8bRUFh29hrbIhdsXon4=:0
-  MURL: https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie_novel_7.2.4.19.apk
-  APK: fanqie_novel_7.2.4.32.apk
+  workflow_dispatch:
+    inputs:
+      apk-official:
+        description: 'Official APK asset name'
+        required: false
+        default: 'fanqie_novel_official_7.2.4.32.apk'
+        type: string
+      apk-mod:
+        description: 'Modded APK asset name'
+        required: false
+        default: 'fanqie_novel_7.2.4.19.apk'
+        type: string
+
 jobs:
   build:
     runs-on: ubuntu-22.04
-    timeout-minutes: 15
+    timeout-minutes: 60
     steps:
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v4
+
+      - name: Download APKs from release
+        run: |
+          RELEASE_URL="https://github.com/${{ github.repository }}/releases/download/apk-assets"
+          curl -sL -o official.apk "$RELEASE_URL/${{ inputs.apk-official }}"
+          curl -sL -o modded.apk "$RELEASE_URL/${{ inputs.apk-mod }}"
+          ls -lh *.apk
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
         with:
-          java-version: '17'
-          distribution: 'temurin'
+          distribution: temurin
+          java-version: 17
 
-      - run: curl -sL "https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar" -o /opt/apktool.jar
+      - name: Install apktool
+        run: |
+          curl -sL -o apktool.jar \
+            https://github.com/iBotPeaches/Apktool/releases/download/v2.11.1/apktool_2.11.1.jar
 
-      - run: curl -sL "$OURL" -o /tmp/$APK -w "size: %{size_download}\n"
+      - name: Decompile official APK
+        run: java -jar apktool.jar d -f official.apk -o official_smali
 
-      - run: /opt/apktool d /tmp/$APK -o /tmp/base -f 2>&1 | tail -1
+      - name: Decompile modded APK
+        run: java -jar apktool.jar d -f modded.apk -o modded_smali
 
-      - run: curl -sL "$MURL" -o /tmp/m.apk -w "MOD: %{size_download}\n"
+      - name: Overlay all modded smali onto official (full merge)
+        run: |
+          python3 << 'PYEOF'
+import os, shutil
 
-      - run: |
-          echo "=== LIB SIZE DIFF ==="
-          unzip -l /tmp/$APK 'lib/arm64-v8a/*.so' | awk '/\.so/{print $4,$1}' | sort > /tmp/a.txt
-          unzip -l /tmp/m.apk 'lib/arm64-v8a/*.so' | awk '/\.so/{print $4,$1}' | sort > /tmp/b.txt
-          join /tmp/a.txt /tmp/b.txt | awk '{d=$2-$3;d=d<0?-d:d}d>100{print"DIFF: "$1" off="$2" mod="$3}'
-          echo "MOD-ONLY:"; join -v2 /tmp/a.txt /tmp/b.txt
-          echo "OFF-ONLY:"; join -v1 /tmp/a.txt /tmp/b.txt
+modded = 'modded_smali'
+official = 'official_smali'
 
-      - run: |
-          mkdir -p /tmp/ol /tmp/ml
-          unzip -q /tmp/$APK 'lib/arm64-v8a/*.so' -d /tmp/ol
-          unzip -q /tmp/m.apk 'lib/arm64-v8a/*.so' -d /tmp/ml
-          cd /tmp/ol/lib/arm64-v8a
-          for so in *.so; do
-            mf="/tmp/ml/lib/arm64-v8a/$so"; [ ! -f "$mf" ] && continue
-            s1=$(stat -c%s "$so"); s2=$(stat -c%s "$mf"); d=$((s1-s2)); d=${d#-}
-            [ "$d" -le 100 ] && continue
-            export FN="$so" FP="$mf" S1="$s1" S2="$s2"
-            python3 -c "import os,binascii
-d1=open('/tmp/ol/lib/arm64-v8a/'+os.environ['FN'],'rb').read()
-d2=open(os.environ['FP'],'rb').read()
-n=0
-for i in range(0,min(len(d1),len(d2)),16):
-    if d1[i:i+16]!=d2[i:i+16]:
-        if n<8:
-            a=' '.join('%02x'%b for b in d1[i:i+16]); b=' '.join('%02x'%b for b in d2[i:i+16])
-            sa=''.join(chr(b) if 32<=b<=126 else '.' for b in d1[i:i+16])
-            sb=''.join(chr(b) if 32<=b<=126 else '.' for b in d2[i:i+16])
-            print('@%05x'%i);print('O:'+a+' '+sa);print('M:'+b+' '+sb)
-        n+=1
-print(os.environ['FN']+': '+str(n)+' diff off='+os.environ['S1']+' mod='+os.environ['S2'])"
-          done
+# Lancet is compile-time AOP: every getPackageInfo() call site was rewritten
+# to route through zo4/b.c() instead. Without those rewired call sites,
+# just copying zo4/b and kx4 is NOT enough.
+# Solution: full smali overlay from modded.
 
-      - run: |
-          python3 -c "import zipfile,hashlib
-o=zipfile.ZipFile('/tmp/$APK'); m=zipfile.ZipFile('/tmp/m.apk')
-for f in sorted(set(o.namelist())|set(m.namelist())):
-    if not f.endswith('.dex'): continue
-    od=o.read(f) if f in o.namelist() else None; md=m.read(f) if f in m.namelist() else None
-    if od and md:
-        if hashlib.sha256(od).hexdigest()!=hashlib.sha256(md).hexdigest():
-            print('DEXDIFF:'+f+' off='+str(len(od))+' mod='+str(len(md)))
-    elif od: print('DEXOFF:'+f)
-    elif md: print('DEXMOD:'+f)"
+for item in sorted(os.listdir(modded)):
+    src = os.path.join(modded, item)
+    dst = os.path.join(official, item)
+    if item == 'original' or not os.path.isdir(src):
+        continue
+    print(f'Merging {item}...')
+    if os.path.exists(dst):
+        shutil.rmtree(dst)
+    shutil.copytree(src, dst)
 
-      - uses: Mattraks/delete-workflow-runs@v2
+# AndroidManifest (has appComponentFactory change)
+shutil.copy2(os.path.join(modded, 'AndroidManifest.xml'),
+             os.path.join(official, 'AndroidManifest.xml'))
+print('Applied modded AndroidManifest.xml')
+print('DONE')
+PYEOF
+
+      - name: Rebuild APK
+        run: java -jar apktool.jar b official_smali -o unsigned.apk
+
+      - name: Generate debug keystore & sign
+        run: |
+          keytool -genkey -v -keystore debug.keystore -alias androiddebugkey \
+            -storepass android -keypass android -keyalg RSA -keysize 2048 \
+            -validity 10000 -dname "CN=Debug, OU=Unknown, O=Unknown, L=Unknown, ST=Unknown, C=US"
+
+          # Sign with apksigner
+          apksigner sign --ks debug.keystore --ks-pass pass:android \
+            --ks-key-alias androiddebugkey --out patched.apk unsigned.apk
+          ls -lh patched.apk
+
+      - name: Verify signature
+        run: apksigner verify --print-certs patched.apk
+
+      - name: Upload patched APK
+        uses: actions/upload-artifact@v4
         with:
-          retain_days: 0
-          keep_minimum_runs: 5
+          name: fanqie-novel-patched
+          path: patched.apk
+          retention-days: 90
