@@ -1,4 +1,4 @@
-name: Binary Diff official vs modded
+name: SO Diff official vs modded
 on:
   workflow_dispatch: {}
 env:
