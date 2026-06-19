@@ -1,17 +1,16 @@
 name: Extract Fanqie Novel Patches
-
 on:
   workflow_dispatch:
     inputs:
       apk-mod:
-        description: 'APK asset name to download from release (modded)'
+        description: APK asset name (modded)
         required: false
-        default: 'fanqie_novel_7.2.4.19.apk'
+        default: fanqie_novel_7.2.4.19.apk
         type: string
       apk-official:
-        description: 'APK asset name to download from release (official)'
+        description: APK asset name (official)
         required: false
-        default: 'fanqie_novel_official_7.2.4.32.apk'
+        default: fanqie_novel_official_7.2.4.32.apk
         type: string
 
 jobs:
@@ -21,57 +20,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download APKs from release
+      - name: Download APKs
         run: |
           RELEASE_URL="https://github.com/${{ github.repository }}/releases/download/apk-assets"
           curl -sL -o modded.apk "$RELEASE_URL/${{ inputs.apk-mod }}"
           curl -sL -o official.apk "$RELEASE_URL/${{ inputs.apk-official }}"
-          ls -lh *.apk
 
-      - name: Native lib size diff
-        run: |
-          echo "=== NATIVE LIB SIZE COMPARISON ==="
-          python3 -c "
-import zipfile
-off = zipfile.ZipFile('official.apk')
-mod = zipfile.ZipFile('modded.apk')
-off_libs = {f: off.getinfo(f).file_size for f in off.namelist() if f.startswith('lib/arm64-v8a/') and f.endswith('.so')}
-mod_libs = {f: mod.getinfo(f).file_size for f in mod.namelist() if f.startswith('lib/arm64-v8a/') and f.endswith('.so')}
-for f in sorted(set(list(off_libs.keys()) + list(mod_libs.keys()))):
-    os = off_libs.get(f, 0); ms = mod_libs.get(f, 0)
-    if os != ms:
-        print(f'SIZE-DIFF: {f} off={os} mod={ms} delta={ms-os}')
-        off_libs.pop(f, None)
-        mod_libs.pop(f, None)
-    else:
-        off_libs.pop(f, None)
-        mod_libs.pop(f, None)
-for f in sorted(mod_libs): print(f'MOD-ONLY: {f} size={mod_libs[f]}')
-print(f'Common identical: {len(off_libs)} libs match byte-for-byte')
-"
+      - name: Native lib size comparison
+        run: python3 .github/scripts/native-lib-diff.py
 
       - name: DEX hash comparison
-        run: |
-          echo "=== DEX HASH COMPARISON ==="
-          python3 -c "
-import zipfile, hashlib
-off = zipfile.ZipFile('official.apk')
-mod = zipfile.ZipFile('modded.apk')
-seen = set()
-for f in off.namelist() + mod.namelist():
-    if not f.endswith('.dex') or f in seen: continue
-    seen.add(f)
-    od = off.read(f) if f in off.namelist() else None
-    md = mod.read(f) if f in mod.namelist() else None
-    if od and md:
-        if hashlib.sha256(od).hexdigest() != hashlib.sha256(md).hexdigest():
-            print(f'DIFF: {f} off={len(od)} mod={len(md)}')
-    elif od: print(f'OFF-ONLY: {f} ({len(od)})')
-    elif md: print(f'MOD-ONLY: {f} ({len(md)})')
-off.close(); mod.close()
-"
+        run: python3 .github/scripts/dex-hash-diff.py
 
-      - name: Set up Java & apktool
+      - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -89,91 +50,13 @@ off.close(); mod.close()
         run: java -jar apktool.jar d -f modded.apk -o modded_smali
 
       - name: Extract DPatch framework & Lancet hooks
-        run: |
-          mkdir -p patches
+        run: bash .github/scripts/extract-patches.sh
 
-          # 1. Manifest: appComponentFactory
-          grep -n 'appComponentFactory' official_smali/AndroidManifest.xml > patches/manifest-official.txt
-          grep -n 'appComponentFactory' modded_smali/AndroidManifest.xml > patches/manifest-modded.txt
-          echo "Official: $(cat patches/manifest-official.txt)"
-          echo "Modded:  $(cat patches/manifest-modded.txt)"
+      - name: Search key references
+        run: bash .github/scripts/search-references.sh
 
-          # 2. Lancet getPackageInfo hooks
-          for f in zo4/b.smali uo4/l.smali; do
-            found=$(find modded_smali -path "smali*/$f" 2>/dev/null | head -1)
-            if [ -n "$found" ]; then
-              dest="patches/$(echo "$found" | sed 's|modded_smali/||')"
-              mkdir -p "$(dirname "$dest")"
-              cp "$found" "$dest"
-              echo "Lancet hook: $found"
-            fi
-          done
-
-          # 3. DPatch framework files
-          find modded_smali -path "*/pandora/core/*" -name "*.smali" 2>/dev/null > /tmp/dpatch.list
-          while IFS= read -r f; do
-            dest="patches/dpatch/$(echo "$f" | sed 's|modded_smali/||')"
-            mkdir -p "$(dirname "$dest")"
-            cp "$f" "$dest"
-          done < /tmp/dpatch.list
-          echo "DPatch files: $(wc -l < /tmp/dpatch.list)"
-
-          # 4. Comment-prefixed Lancet hooks
-          grep -rn 'Lancet\|@Proxy\|@BaseProxy\|@ProxyField' modded_smali/smali*/ --include='*.smali' 2>/dev/null \
-            | grep -v '\.\.\/' > patches/lancet-declarations.txt
-          echo "Lancet declarations: $(wc -l < patches/lancet-declarations.txt)"
-
-      - name: Search signature & device references
-        run: |
-          mkdir -p patches/references
-          cd modded_smali
-
-          for spec in \
-            "checkSign:checkSign|CheckSign|check_sign" \
-            "signEnv:checkSignEnv|checkSignRes" \
-            "novelParam:NovelCommonParam" \
-            "packageInfo:getPackageInfo|signatures|signingInfo" \
-            "signData:_sign|signData|sign_data" \
-            "device:DeviceRegisterManager|deviceId|oaid" \
-            "lancet:Lancet|@Proxy" \
-            "shadowhook:shadowhook|ShadowHook"; do
-
-            name="${spec%%:*}"
-            pattern="${spec#*:}"
-            grep -rn "$pattern" smali*/ --include="*.smali" 2>/dev/null | head -300 > "../patches/references/${name}.txt"
-            count=$(wc -l < "../patches/references/${name}.txt")
-            printf "  %-20s %d lines\n" "${name}:" "$count"
-          done
-
-          cd ..
-
-      - name: Find actual modified files (between official & modded)
-        run: |
-          python3 -c "
-import os
-modded = 'modded_smali'
-official = 'official_smali'
-count = 0
-for root, dirs, files in os.walk(modded):
-    for f in files:
-        if not f.endswith('.smali'): continue
-        mod_path = os.path.join(root, f)
-        off_path = mod_path.replace('modded_smali', 'official_smali', 1)
-        if not os.path.exists(off_path): continue
-        with open(mod_path) as a, open(off_path) as b:
-            if a.read() != b.read():
-                rel = os.path.relpath(mod_path, modded)
-                print(rel)
-                count += 1
-print('TOTAL_MODIFIED: %d' % count)
-" > patches/modified-files.txt
-          echo "=== Modified files ==="
-          wc -l < patches/modified-files.txt | xargs echo "Total:"
-
-      - name: Package & upload
-        run: |
-          tar czf /tmp/patches.tar.gz patches/
-          ls -lh /tmp/patches.tar.gz
+      - name: Find actually modified smali files
+        run: python3 .github/scripts/find-modified-files.py
 
       - name: Upload patches
         uses: actions/upload-artifact@v4
