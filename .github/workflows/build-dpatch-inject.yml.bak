@@ -29,20 +29,30 @@ jobs:
           /opt/apktool d /tmp/official.apk -o /tmp/off -f 2>&1 | tail -1
           /opt/apktool d /tmp/modded.apk -o /tmp/mod -f 2>&1 | tail -1
 
-      - name: Inject deps into new dex
+      - name: Inject all missing smali dependencies
         run: |
-          # New dex to avoid 16-bit offset overflow from large smali blobs
-          OFF="/tmp/off/smali_classes29"
-          mkdir -p "$OFF"
-          for pkg in com/pandora com/bytedance/shadowhook com/bytedance/covode fe3 com/dragon/read/ad/util; do
+          OFF=$(ls -d /tmp/off/smali_classes* | sort -V | tail -1)
+          # Inject ALL packages that exist in modded but not in official
+          # These are DPatch's dependencies and modder-added code
+          for pkg in com/pandora com/bytedance/shadowhook com/bytedance/covode fe3; do
             SRC=$(find /tmp/mod -type d -path "*/$pkg" 2>/dev/null | head -1)
             if [ -n "$SRC" ]; then
-              D="$OFF/$pkg"
-              mkdir -p "$D"
-              cp -r "$SRC/"* "$D/" 2>/dev/null
+              DST="$OFF/$pkg"
+              mkdir -p "$DST"
+              cp -r "$SRC/"* "$DST/" 2>/dev/null
+              echo "ADD: $pkg ($(find "$DST" -name '*.smali' 2>/dev/null | wc -l) files)"
             fi
           done
-          echo "INJECTED: $(find "$OFF" -name '*.smali' | wc -l) smali files"
+          # Also inject dragon/read/ad/util (referenced by DPatch)
+          for pkg in com/dragon/read/ad/util com/dragon/read/ad/manager; do
+            SRC=$(find /tmp/mod -type d -path "*/$pkg" 2>/dev/null | head -1)
+            if [ -n "$SRC" ]; then
+              DST="$OFF/$pkg"
+              mkdir -p "$DST"
+              cp -r "$SRC/"* "$DST/" 2>/dev/null
+              echo "ADD: $pkg ($(find "$DST" -name '*.smali' 2>/dev/null | wc -l) files)"
+            fi
+          done
 
       - name: Patch manifest
         run: |
