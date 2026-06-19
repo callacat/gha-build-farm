@@ -19,106 +19,57 @@ jobs:
           curl -sL "https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar" -o /opt/apktool.jar
           printf '#!/bin/bash\njava -jar /opt/apktool.jar "$@"\n' > /opt/apktool && chmod +x /opt/apktool
 
-      - name: Download both APKs
+      - name: Download APKs
         run: |
-          curl -sL "$OFFICIAL_URL" -o /tmp/official.apk -w "OFFICIAL: HTTP %{http_code}, size: %{size_download}\n"
-          curl -sL "$MODDED_URL" -o /tmp/modded.apk -w "MODDED: HTTP %{http_code}, size: %{size_download}\n"
+          curl -sL "$OFFICIAL_URL" -o /tmp/official.apk -w "OFF: HTTP %{http_code}, size: %{size_download}\n"
+          curl -sL "$MODDED_URL" -o /tmp/modded.apk -w "MOD: HTTP %{http_code}, size: %{size_download}\n"
 
-      - name: Decode both
+      - name: Decode
         run: |
           /opt/apktool d /tmp/official.apk -o /tmp/official -f 2>&1 | tail -1
           /opt/apktool d /tmp/modded.apk -o /tmp/modded -f 2>&1 | tail -1
 
-      - name: 1. Manifest diff
+      - name: Extract patched files
         run: |
-          echo "=== appComponentFactory ==="
-          grep 'appComponentFactory' /tmp/official/AndroidManifest.xml
-          grep 'appComponentFactory' /tmp/modded/AndroidManifest.xml
-          echo ""
-          echo "=== Application name ==="
-          grep 'android:name="' /tmp/official/AndroidManifest.xml | head -3
-          grep 'android:name="' /tmp/modded/AndroidManifest.xml | head -3
-
-      - name: 2. Find signature-related smali files
-        run: |
-          cd /tmp/modded
-          echo "=== Files related to app verification ==="
-          grep -rn 'signature\|verify\|PackageManager.*sign\|getPackageInfo\|INSTALL_FAILED\|signing\|certificate\|checkSign' smali* 2>/dev/null | grep -v 'androidx\|android/support\|kotlin\|retrofit\|okhttp' | head -30
-
-      - name: 3. Diff key smali files
-        run: |
-          # ActivityThread
-          for f in ActivityThread.smali ActivityThreadCompat.smali AppBindData.smali; do
-            OFF=$(find /tmp/official -name "$f" 2>/dev/null | head -1)
-            MOD=$(find /tmp/modded -name "$f" 2>/dev/null | head -1)
-            echo "=== $f ==="
-            if [ -n "$OFF" ] && [ -n "$MOD" ]; then
-              diff -q "$OFF" "$MOD" 2>/dev/null && echo "(identical)" || echo "(MODIFIED)"
-            else
-              echo "missing in official: $OFF" 2>/dev/null
+          # Target files identified from previous analysis
+          PATHS=""
+          for path in \
+            android/app/ActivityThread.smali \
+            android/app/ActivityThreadCompat.smali; do
+            OFF=$(find /tmp/official -name "$(basename $path)" -path "*/$(dirname $path)/*" 2>/dev/null | head -1)
+            MOD=$(find /tmp/modded -name "$(basename $path)" -path "*/$(dirname $path)/*" 2>/dev/null | head -1)
+            echo "=== $(basename $path) ==="
+            echo "OFF: $OFF ($([ -f "$OFF" ] && wc -l < "$OFF" || echo 0) lines)"
+            echo "MOD: $MOD ($([ -f "$MOD" ] && wc -l < "$MOD" || echo 0) lines)"
+            if [ -f "$OFF" ] && [ -f "$MOD" ]; then
+              diff -u "$OFF" "$MOD" 2>/dev/null | head -200
             fi
           done
-          # AppFactory (modded only)
-          echo "=== com.pandora.core.AppFactory ==="
+
+      - name: Extract AppFactory
+        run: |
+          echo "=== AppFactory (modded only) ==="
           find /tmp/modded -path '*/com/pandora/*' -name '*.smali' 2>/dev/null | while read f; do
-            echo "FOUND: $f ($(wc -l < "$f") lines)"
+            NAME=$(basename "$(dirname "$f")")/$(basename "$f")
+            echo "--- $NAME ($(wc -l < "$f") lines) ---"
+            head -50 "$f"
+            echo "..."
           done
 
-      - name: 4. J/N.smali diff
+      - name: Extract getPackageInfo patches
         run: |
-          OFF_J=$(find /tmp/official -name 'N.smali' -path '*/J/*' 2>/dev/null | head -1)
-          MOD_J=$(find /tmp/modded -name 'N.smali' -path '*/J/*' 2>/dev/null | head -1)
-          echo "=== J/N.smali ==="
-          echo "Official: $OFF_J ($([ -f "$OFF_J" ] && wc -l < "$OFF_J" || echo 0) lines)"
-          echo "Modded: $MOD_J ($([ -f "$MOD_J" ] && wc -l < "$MOD_J" || echo 0) lines)"
-          if [ -f "$OFF_J" ] && [ -f "$MOD_J" ]; then
-            diff -q "$OFF_J" "$MOD_J" 2>/dev/null && echo "(identical)" || echo "(MODIFIED)"
-          fi
-
-      - name: 5. Patch summary
-        run: |
-          echo "=== OFFICIAL-ONLY SMALI ==="
-          comm -23 <(cd /tmp/official && find smali* -name '*.smali' | sort) \
-                  <(cd /tmp/modded && find smali* -name '*.smali' | sort) | wc -l
-          echo "=== MODDED-ONLY SMALI ==="
-          comm -13 <(cd /tmp/official && find smali* -name '*.smali' | sort) \
-                  <(cd /tmp/modded && find smali* -name '*.smali' | sort) | wc -l
-          echo "=== MODIFIED FILES ==="
-          comm -12 <(cd /tmp/official && find smali* -name '*.smali' | sort) \
-                  <(cd /tmp/modded && find smali* -name '*.smali' | sort) | while read f; do
-            if ! diff -q "/tmp/official/$f" "/tmp/modded/$f" 2>/dev/null >/dev/null; then
-              echo "$f"
-            fi
-          done | head -100
-
-      - name: Extract the modified files for review
-        run: |
-          mkdir -p /tmp/patches
-          # Copy all modified smali files that could be signature-related
-          for f in $(comm -12 <(cd /tmp/official && find smali* -name '*.smali' | sort) \
-                              <(cd /tmp/modded && find smali* -name '*.smali' | sort)); do
-            if ! diff -q "/tmp/official/$f" "/tmp/modded/$f" 2>/dev/null >/dev/null; then
-              d="$(dirname "/tmp/patches/$f")"
-              mkdir -p "$d"
-              cp "/tmp/official/$f" "/tmp/patches/$f" 2>/dev/null
+          echo "=== getPackageInfo hooks ==="
+          for fname in zo4/b.smali uo4/l.smali; do
+            echo "--- $fname ---"
+            f=$(find /tmp/modded -name "$(basename $fname)" -path "*/$(dirname $fname)/*" 2>/dev/null | head -1)
+            OFF=$(find /tmp/official -name "$(basename $fname)" -path "*/$(dirname $fname)/*" 2>/dev/null | head -1)
+            if [ -f "$f" ] && [ -f "$OFF" ]; then
+              diff -u "$OFF" "$f" 2>/dev/null | head -100
+            elif [ -f "$f" ]; then
+              echo "modded-only file: $(wc -l < "$f") lines"
+              head -50 "$f"
             fi
           done
-          # Copy modded-only files
-          for f in $(comm -13 <(cd /tmp/official && find smali* -name '*.smali' | sort) \
-                              <(cd /tmp/modded && find smali* -name '*.smali' | sort)); do
-            d="$(dirname "/tmp/patches/modded-only/$f")"
-            mkdir -p "$d"
-            cp "/tmp/modded/$f" "/tmp/patches/modded-only/$f" 2>/dev/null
-          done
-          echo "Patched files: $(find /tmp/patches -name '*.smali' | wc -l)"
-          echo "Modded-only files: $(find /tmp/patches/modded-only -name '*.smali' 2>/dev/null | wc -l)"
-
-      - name: Upload patches artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: smali-patches
-          path: /tmp/patches/
-          retention-days: 7
 
       - name: Delete old runs
         uses: Mattraks/delete-workflow-runs@v2
