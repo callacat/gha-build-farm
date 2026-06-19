@@ -14,66 +14,39 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Install tools
-        run: |
-          curl -sL "https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar" -o /opt/apktool.jar
-          printf '#!/bin/bash\njava -jar /opt/apktool.jar "$@"\n' > /opt/apktool && chmod +x /opt/apktool
+      - name: Get APKs
+        run: curl -sL "$OFFICIAL_URL" -o /tmp/off.apk -w "OFF: HTTP %{http_code}, size: %{size_download}\n"
+      - name: Get modded
+        run: curl -sL "$MODDED_URL" -o /tmp/mod.apk -w "MOD: HTTP %{http_code}, size: %{size_download}\n"
 
-      - name: Download APKs
+      - name: List native libs
         run: |
-          curl -sL "$OFFICIAL_URL" -o /tmp/off.apk -w "OFF: HTTP %{http_code}, size: %{size_download}\n"
-          curl -sL "$MODDED_URL" -o /tmp/mod.apk -w "MOD: HTTP %{http_code}, size: %{size_download}\n"
+          echo "=== OFFICIAL==="; unzip -l /tmp/off.apk 'lib/arm64-v8a/*.so' 2>/dev/null | awk '/\.so/{print $4,$1}'
+          echo "=== MODDED==="; unzip -l /tmp/mod.apk 'lib/arm64-v8a/*.so' 2>/dev/null | awk '/\.so/{print $4,$1}'
 
-      - name: S1 — List all native libs both APKs
+      - name: Size diff
         run: |
-          unzip -l /tmp/off.apk 'lib/arm64-v8a/*.so' 2>/dev/null | awk '{print $4, $1}' | grep '\.so$' | sort > /tmp/off_libs.txt
-          unzip -l /tmp/mod.apk 'lib/arm64-v8a/*.so' 2>/dev/null | awk '{print $4, $1}' | grep '\.so$' | sort > /tmp/mod_libs.txt
-          echo "=== OFFICIAL LIBS ($(wc -l < /tmp/off_libs.txt)) ==="
-          cat /tmp/off_libs.txt
-          echo ""
-          echo "=== MODDED LIBS ($(wc -l < /tmp/mod_libs.txt)) ==="
-          cat /tmp/mod_libs.txt
+          unzip -l /tmp/off.apk 'lib/arm64-v8a/*.so' 2>/dev/null | awk '/\.so/{print $4,$1}' | sort > /tmp/o.txt
+          unzip -l /tmp/mod.apk 'lib/arm64-v8a/*.so' 2>/dev/null | awk '/\.so/{print $4,$1}' | sort > /tmp/m.txt
+          echo "=== SIZE DIFF ==="; join -j1 /tmp/o.txt /tmp/m.txt | awk '{d=$2-$3;d=d<0?-d:d} d>100{print "DIFF: "$1" off="$2" mod="$3" delta="($2-$3)}'
+          echo "=== MOD-ONLY ==="; join -v2 /tmp/o.txt /tmp/m.txt | awk '{print $1}'
 
-      - name: S2 — Size comparison
+      - name: Hex diff
         run: |
-          echo "=== DIFFERENT SIZE LIBS ==="
-          while read line; do
-            name=$(echo $line | awk '{print $1}')
-            off_size=$(echo $line | awk '{print $2}')
-            mod_line=$(grep -F "$name" /tmp/mod_libs.txt | head -1)
-            if [ -n "$mod_line" ]; then
-              mod_size=$(echo $mod_line | awk '{print $2}')
-              diff=$((off_size - mod_size))
-              abs=${diff#-}
-              if [ "$abs" -gt 100 ]; then
-                echo "DIFFERENT: $name (off=$off_size mod=$mod_size delta=$diff)"
-              fi
-            fi
-          done < /tmp/off_libs.txt
-          echo ""
-          echo "=== LIBS ONLY IN MODDED ==="
-          while read line; do
-            name=$(echo $line | awk '{print $1}')
-            if ! grep -qF "$name" /tmp/off_libs.txt; then
-              echo "$name"
-            fi
-          done < /tmp/mod_libs.txt
-
-      - name: S3 — Download and hex-diff changed libs
-        run: |
-          mkdir -p /tmp/olib /tmp/mlib
-          unzip -q -o /tmp/off.apk 'lib/arm64-v8a/*.so' -d /tmp/olib 2>/dev/null
-          unzip -q -o /tmp/mod.apk 'lib/arm64-v8a/*.so' -d /tmp/mlib 2>/dev/null
-          cd /tmp/olib/lib/arm64-v8a
+          mkdir -p /tmp/ol /tmp/ml
+          unzip -q /tmp/off.apk 'lib/arm64-v8a/*.so' -d /tmp/ol 2>/dev/null
+          unzip -q /tmp/mod.apk 'lib/arm64-v8a/*.so' -d /tmp/ml 2>/dev/null
+          cd /tmp/ol/lib/arm64-v8a
           for f in *.so; do
-            mf="/tmp/mlib/lib/arm64-v8a/$f"
-            [ ! -f "$mf" ] && continue
+            mf="/tmp/ml/lib/arm64-v8a/$f"; [ ! -f "$mf" ] && continue
             os=$(stat -c%s "$f"); ms=$(stat -c%s "$mf")
-            d=$((os - ms)); d=${d#-}; [ "$d" -le 100 ] && continue
-            echo "=== $f (off=$os mod=$ms) ==="
-            python3 -c "
-d1=open('$f','rb').read()
-d2=open('$mf','rb').read()
+            d=$((os-ms)); d=${d#-}; [ $d -le 100 ] && continue
+            export F="$f" OF="$f" MF="$mf" OS="$os" MS="$ms"
+            python3 << 'EOF'
+import os
+f1="/tmp/ol/lib/arm64-v8a/"+os.environ['F']
+f2=os.environ['MF']
+d1=open(f1,'rb').read(); d2=open(f2,'rb').read()
 n=0
 for i in range(0,min(len(d1),len(d2)),16):
     if d1[i:i+16]!=d2[i:i+16]:
@@ -84,26 +57,29 @@ for i in range(0,min(len(d1),len(d2)),16):
             print('  off: '+' '.join('%02x'%b for b in d1[i:i+16])+'  '+s1)
             print('  mod: '+' '.join('%02x'%b for b in d2[i:i+16])+'  '+s2)
         n+=1
-print('regions: %d'%n)
-"
+print(os.environ['F']+': '+str(n)+' diff regions')
+EOF
           done
 
-      - name: S4 — DEX hash comparison
+      - name: DEX hash
         run: |
-          python3 -c "
-import zipfile, hashlib
-off=zipfile.ZipFile('/tmp/off.apk')
-mod=zipfile.ZipFile('/tmp/mod.apk')
-allf=sorted(set(off.namelist())|set(mod.namelist()))
-for f in allf:
-    if not f.endswith('.dex'): continue
+          python3 << 'EOF'
+import zipfile,hashlib
+off=zipfile.ZipFile('/tmp/off.apk'); mod=zipfile.ZipFile('/tmp/mod.apk')
+seen=set()
+for f in off.namelist()+mod.namelist():
+    if not f.endswith('.dex') or f in seen: continue
+    seen.add(f)
     od=off.read(f) if f in off.namelist() else None
     md=mod.read(f) if f in mod.namelist() else None
     if od and md:
-        if hashlib.sha256(od).hexdigest()!=hashlib.sha256(md).hexdigest():
-            print('DIFF: '+f+' (off='+str(len(od))+' mod='+str(len(md))+')')
-    elif od and not md:
-        print('OFF-ONLY: '+f+' ('+str(len(od))+')')
-    else:
-        print('MOD-ONLY: '+f+' ('+str(len(md))+')')
-"
+        if hashlib.sha256(od).hexdigest()!=hashlib.sha256(md).hexdigest(): print('DIFF: '+f+' off='+str(len(od))+' mod='+str(len(md)))
+    elif od: print('OFF-ONLY: '+f+' ('+str(len(od))+')')
+    elif md: print('MOD-ONLY: '+f+' ('+str(len(md))+')')
+EOF
+
+      - name: Delete old runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          retain_days: 0
+          keep_minimum_runs: 5
