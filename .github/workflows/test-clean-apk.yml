@@ -2,12 +2,8 @@ name: Test Clean APK
 on:
   workflow_dispatch:
     inputs:
-      artifact_name:
-        description: 'Artifact name from build-clean-apk workflow'
-        required: false
-        default: 'clean-apk-v1'
       build_run_id:
-        description: 'Optional: specific build run ID to test'
+        description: 'Build run ID (leave empty for latest)'
         required: false
         default: ''
   workflow_run:
@@ -18,42 +14,48 @@ jobs:
   emulator-test:
     runs-on: ubuntu-22.04
     timeout-minutes: 30
-    if: >
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     steps:
-      - name: Download APK from build
-        id: download
+      - name: Install tools
+        run: |
+          curl -sL "https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar" -o /opt/apktool.jar
+          printf '#!/bin/bash\njava -jar /opt/apktool.jar "$@"\n' > /opt/apktool && chmod +x /opt/apktool
+
+      - name: Determine build run ID
+        id: runid
         run: |
           if [ -n "${{ inputs.build_run_id }}" ]; then
-            RUN_ID="${{ inputs.build_run_id }}"
+            RID="${{ inputs.build_run_id }}"
           elif [ "${{ github.event_name }}" = "workflow_run" ]; then
-            RUN_ID="${{ github.event.workflow_run.id }}"
+            RID="${{ github.event.workflow_run.id }}"
           else
-            # Find the latest successful build run
-            RUN_ID=$(gh run list -R ${{ github.repository }} -w "Build Clean APK" \
+            RID=$(gh run list -R ${{ github.repository }} -w "Build Clean APK" \
               --json 'databaseId,conclusion' --jq '.[] | select(.conclusion=="success") | .databaseId' | head -1)
           fi
-          echo "Using build run: $RUN_ID"
-          ARTIFACT_NAME="${{ inputs.artifact_name }}"
-          if [ -z "$ARTIFACT_NAME" ]; then
-            # Auto-detect artifact from the build run
-            ARTIFACT_NAME=$(gh run view "$RUN_ID" -R ${{ github.repository }} --json 'artifacts' \
-              --jq '.artifacts[] | select(.name | startswith("clean-apk")) | .name' | head -1)
-          fi
-          echo "Downloading artifact: $ARTIFACT_NAME"
-          gh run download "$RUN_ID" -n "$ARTIFACT_NAME" -R ${{ github.repository }} --dir /tmp/apk
+          echo "run_id=$RID" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: clean-apk*
+          path: /tmp/apk
+          merge-multiple: true
+          run-id: ${{ steps.runid.outputs.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Find APK
+        id: apk
+        run: |
           ls -lh /tmp/apk/
-          echo "apk_path=$(ls /tmp/apk/*.apk | head -1)" >> $GITHUB_OUTPUT
+          APK=$(find /tmp/apk -name '*.apk' | head -1)
+          echo "Found: $APK"
+          echo "path=$APK" >> "$GITHUB_OUTPUT"
 
       - name: Check APK exists
+        if: steps.apk.outputs.path == ''
         run: |
-          APK="${{ steps.download.outputs.apk_path }}"
-          if [ -z "$APK" ] || [ ! -f "$APK" ]; then
-            echo "No APK found"; exit 1
-          fi
-          file "$APK"
-          ls -lh "$APK"
+          echo "No APK found!"
+          ls -la /tmp/apk/ || true
+          exit 1
 
       - name: Setup Android Emulator
         uses: reactivecircus/android-emulator-runner@v2
@@ -64,39 +66,21 @@ jobs:
           emulator-options: -no-window -no-snapshot -noaudio -memory 2048
           disable-animations: true
           script: |
-            echo "=== Waiting for emulator ready ==="
-            adb wait-for-device
-            adb shell settings put global window_animation_scale 0.0
-            adb shell settings put global transition_animation_scale 0.0
-            adb shell settings put global animator_duration_scale 0.0
-
             echo "=== Install APK ==="
-            adb install -r "${{ steps.download.outputs.apk_path }}"
-            echo "INSTALL EXIT: $?"
+            adb install -r "${{ steps.apk.outputs.path }}"
+            echo "EXIT: $?"
 
-            echo "=== List packages ==="
-            adb shell pm list packages | grep dragon.read
-
-            echo "=== Launch app ==="
+            echo "=== Launch ==="
             adb shell am start -n com.dragon.read/.pages.splash.SplashActivity
             sleep 8
 
-            echo "=== Check for crash ==="
-            adb shell dumpsys window windows 2>/dev/null | grep -E 'mCurrentFocus|mFocusedApp' | head -5
-            adb shell dumpsys activity activities 2>/dev/null | grep 'ResumedActivity' | head -3
-
-            echo "=== Logcat errors ==="
-            adb logcat -d -s AndroidRuntime SystemWebView Chrome DEBUG "*:E" 2>/dev/null | grep -v 'WifiStateMachine\|SensorService\|NetworkController\|PowerManager' | head -30
+            echo "=== Check ==="
+            adb shell dumpsys window windows 2>/dev/null | grep 'mCurrentFocus\|mFocusedApp' | head -3
+            adb logcat -d -s AndroidRuntime "*:E" 2>/dev/null | head -15
 
             echo "=== Screenshot ==="
-            adb exec-out screencap -p > /tmp/screenshot.png || echo "SCREENSHOT FAILED"
-            echo "SCREENSHOT_SAVED"
-
-      - name: Check app is running
-        run: |
-          echo "=== CHECK RESULT ==="
-          # Check if screenshot exists
-          ls -lh /tmp/screenshot.png 2>/dev/null || echo "No screenshot"
+            adb exec-out screencap -p > /tmp/screenshot.png || true
+            ls -lh /tmp/screenshot.png && echo "SCREENSHOT_OK" || echo "SCREENSHOT_FAILED"
 
       - name: Upload screenshot
         uses: actions/upload-artifact@v4
