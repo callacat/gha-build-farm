@@ -29,31 +29,44 @@ jobs:
           /opt/apktool d /tmp/official.apk -o /tmp/off -f 2>&1 | tail -1
           /opt/apktool d /tmp/modded.apk -o /tmp/mod -f 2>&1 | tail -1
 
-      - name: Inject DPatch + deps
+      - name: Inject all missing smali dependencies
         run: |
           OFF=$(ls -d /tmp/off/smali_classes* | sort -V | tail -1)
-          # DPatch core
-          mkdir -p "$OFF/com/pandora/core"
-          for f in AppFactory.smali CreatorProxy.smali Copyright.smali AppFactory\$DATA.smali ۧۤۤ.smali; do
-            SRC=$(find /tmp/mod -path "*/com/pandora/core/$f" 2>/dev/null | head -1)
-            [ -n "$SRC" ] && cp "$SRC" "$OFF/com/pandora/core/" && echo "ADD: $f"
+          # Inject ALL packages that exist in modded but not in official
+          # These are DPatch's dependencies and modder-added code
+          for pkg in com/pandora com/bytedance/shadowhook com/bytedance/covode fe3; do
+            SRC=$(find /tmp/mod -type d -path "*/$pkg" 2>/dev/null | head -1)
+            if [ -n "$SRC" ]; then
+              DST="$OFF/$pkg"
+              mkdir -p "$DST"
+              cp -r "$SRC/"* "$DST/" 2>/dev/null
+              echo "ADD: $pkg ($(find "$DST" -name '*.smali' 2>/dev/null | wc -l) files)"
+            fi
           done
-          # ShadowHook
-          SHDIR=$(dirname "$(find /tmp/mod -path '*/com/bytedance/shadowhook/Init.smali' 2>/dev/null | head -1)")
-          [ -n "$SHDIR" ] && mkdir -p "$(dirname "$OFF/com/bytedance/shadowhook")" && cp -r "$SHDIR" "$OFF/com/bytedance/" && echo "ADD: shadowhook"
-          # Novel hook helper
-          N=$(find /tmp/mod -type d -name '小说' -path '*/shadowhook/*' 2>/dev/null | head -1)
-          [ -n "$N" ] && mkdir -p "$OFF/com/bytedance/shadowhook" && cp -r "$N" "$OFF/com/bytedance/shadowhook/" && echo "ADD: novel-hook"
-          echo "DONE"
+          # Also inject dragon/read/ad/util (referenced by DPatch)
+          for pkg in com/dragon/read/ad/util com/dragon/read/ad/manager; do
+            SRC=$(find /tmp/mod -type d -path "*/$pkg" 2>/dev/null | head -1)
+            if [ -n "$SRC" ]; then
+              DST="$OFF/$pkg"
+              mkdir -p "$DST"
+              cp -r "$SRC/"* "$DST/" 2>/dev/null
+              echo "ADD: $pkg ($(find "$DST" -name '*.smali' 2>/dev/null | wc -l) files)"
+            fi
+          done
 
       - name: Patch manifest
         run: |
           sed -i 's/android:appComponentFactory="[^"]*"/android:appComponentFactory="com.pandora.core.AppFactory"/' /tmp/off/AndroidManifest.xml
           grep appComponentFactory /tmp/off/AndroidManifest.xml
 
-      - name: Build + sign
+      - name: Build
         run: |
-          /opt/apktool b /tmp/off -o /tmp/unsigned.apk 2>&1 | tail -3
+          /opt/apktool b /tmp/off -o /tmp/unsigned.apk 2>&1
+          ls -lh /tmp/unsigned.apk
+
+      - name: Sign
+        if: success()
+        run: |
           keytool -genkey -v -keystore /tmp/debug.keystore -alias debug \
             -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass android -keypass android \
@@ -61,8 +74,8 @@ jobs:
           jarsigner -sigalg SHA1withRSA -digestalg SHA1 \
             -keystore /tmp/debug.keystore -storepass android \
             /tmp/unsigned.apk debug 2>&1 | tail -3
-          mv /tmp/unsigned.apk /tmp/clean.apk && echo "SIGNED OK"
-          ls -lh /tmp/clean.apk
+          mv /tmp/unsigned.apk /tmp/clean.apk
+          ls -lh /tmp/clean.apk && echo "SIGNED OK"
 
       - name: Upload
         uses: actions/upload-artifact@v4
