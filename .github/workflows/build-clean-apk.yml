@@ -1,17 +1,16 @@
-name: Build Patched Fanqie Novel APK
-
+name: Build Clean Fanqie APK
 on:
   workflow_dispatch:
     inputs:
       apk-official:
-        description: 'Official APK asset name'
+        description: APK asset name
         required: false
-        default: 'fanqie_novel_official_7.2.4.32.apk'
+        default: fanqie_novel_official_7.2.4.32.apk
         type: string
       apk-mod:
-        description: 'Modded APK asset name'
+        description: Modded APK asset name
         required: false
-        default: 'fanqie_novel_7.2.4.19.apk'
+        default: fanqie_novel_7.2.4.19.apk
         type: string
 
 jobs:
@@ -21,78 +20,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download APKs from release
+      - name: Download APKs
         run: |
-          RELEASE_URL="https://github.com/${{ github.repository }}/releases/download/apk-assets"
-          curl -sL -o official.apk "$RELEASE_URL/${{ inputs.apk-official }}"
-          curl -sL -o modded.apk "$RELEASE_URL/${{ inputs.apk-mod }}"
-          ls -lh *.apk
+          BASE=https://github.com/${{ github.repository }}/releases/download/apk-assets
+          curl -sL -o official.apk $BASE/${{ inputs.apk-official }}
+          curl -sL -o modded.apk $BASE/${{ inputs.apk-mod }}
 
-      - name: Set up Java
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
 
-      - name: Install apktool
-        run: |
-          curl -sL -o apktool.jar \
-            https://github.com/iBotPeaches/Apktool/releases/download/v2.11.1/apktool_2.11.1.jar
+      - name: Decompile
+        run: bash .github/scripts/decompile-apks.sh
 
-      - name: Decompile official APK
-        run: java -jar apktool.jar d -f official.apk -o official_smali
+      - name: Apply patches
+        run: python3 .github/scripts/overlay-smali.py
 
-      - name: Decompile modded APK
-        run: java -jar apktool.jar d -f modded.apk -o modded_smali
+      - name: Rebuild & sign
+        run: bash .github/scripts/rebuild-and-sign.sh
 
-      - name: Overlay all modded smali onto official (full merge)
-        run: |
-          python3 << 'PYEOF'
-import os, shutil
-
-modded = 'modded_smali'
-official = 'official_smali'
-
-# Lancet is compile-time AOP: every getPackageInfo() call site was rewritten
-# to route through zo4/b.c() instead. Without those rewired call sites,
-# just copying zo4/b and kx4 is NOT enough.
-# Solution: full smali overlay from modded.
-
-for item in sorted(os.listdir(modded)):
-    src = os.path.join(modded, item)
-    dst = os.path.join(official, item)
-    if item == 'original' or not os.path.isdir(src):
-        continue
-    print(f'Merging {item}...')
-    if os.path.exists(dst):
-        shutil.rmtree(dst)
-    shutil.copytree(src, dst)
-
-# AndroidManifest (has appComponentFactory change)
-shutil.copy2(os.path.join(modded, 'AndroidManifest.xml'),
-             os.path.join(official, 'AndroidManifest.xml'))
-print('Applied modded AndroidManifest.xml')
-print('DONE')
-PYEOF
-
-      - name: Rebuild APK
-        run: java -jar apktool.jar b official_smali -o unsigned.apk
-
-      - name: Generate debug keystore & sign
-        run: |
-          keytool -genkey -v -keystore debug.keystore -alias androiddebugkey \
-            -storepass android -keypass android -keyalg RSA -keysize 2048 \
-            -validity 10000 -dname "CN=Debug, OU=Unknown, O=Unknown, L=Unknown, ST=Unknown, C=US"
-
-          # Sign with apksigner
-          apksigner sign --ks debug.keystore --ks-pass pass:android \
-            --ks-key-alias androiddebugkey --out patched.apk unsigned.apk
-          ls -lh patched.apk
-
-      - name: Verify signature
-        run: apksigner verify --print-certs patched.apk
-
-      - name: Upload patched APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: fanqie-novel-patched
