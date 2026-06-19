@@ -1,16 +1,26 @@
 name: Build Clean APK
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      delete_safe:
+        description: 'Delete safe modules (widgets+alipay)'
+        type: boolean
+        default: true
+      delete_tinker:
+        description: 'Delete Tinker hot patch'
+        type: boolean
+        default: false
+      clean_only:
+        description: 'Only repack and sign, no deletion'
+        type: boolean
+        default: false
 env:
   OFFICIAL_URL: https://cloud.dsdog.tk/d/google/temp/%E7%95%AA%E8%8C%84%E5%85%8D%E8%B4%B9%E5%B0%8F%E8%AF%B4_7.2.4.32.apk?sign=xUavME2Rt4Vf1FTbCppPq7sU8bRUFh29hrbIhdsXon4=:0
   APK_NAME: fanqie_novel_7.2.4.32.apk
 jobs:
   build:
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
-    permissions:
-      contents: write
-      actions: write
+    timeout-minutes: 15
     steps:
       - uses: actions/setup-java@v4
         with:
@@ -25,52 +35,39 @@ jobs:
       - name: Download official arm64 APK
         run: |
           curl -sL "$OFFICIAL_URL" -o /tmp/$APK_NAME -w "HTTP %{http_code}, size: %{size_download}\n"
-          ls -lh /tmp/$APK_NAME
-
-      - name: Upload to release cache
-        run: |
-          gh release upload apk-assets "/tmp/$APK_NAME#official_$APK_NAME" \
-            -R ${{ github.repository }} --clobber 2>/dev/null || true
 
       - name: Decode
+        if: ${{ !inputs.clean_only }}
         run: |
           /opt/apktool d /tmp/$APK_NAME -o /tmp/base -f 2>&1 | tail -3
-          echo "BEFORE=$(find /tmp/base -name '*.smali' | wc -l)" >> $GITHUB_ENV
 
-      # v1: safe deletions only — standalone modules, no cross-references expected
-      - name: Delete non-core widgets
+      - name: Delete safe modules
+        if: ${{ inputs.delete_safe && !inputs.clean_only }}
         run: |
           cd /tmp/base
-          for name in redpacket redpacketpattern welfaretask ecomorder coldstart; do
-            find . -type d -name "$name" 2>/dev/null | while read d; do
-              c=$(find "$d" -type f 2>/dev/null | wc -l); echo "DEL: $d ($c)"; rm -rf "$d"
-            done
+          for w in redpacket redpacketpattern welfaretask ecomorder coldstart; do
+            find . -type d -name "$w" 2>/dev/null | while read d; do echo "DEL: $d"; rm -rf "$d"; done
           done
-
-      - name: Delete Alipay SDK (payment not core to reading)
-        run: |
-          cd /tmp/base
-          find . -type d -name 'alipay' -o -type d -name 'utdid2' 2>/dev/null | while read d; do
+          for d in $(find . -type d -name 'alipay' -o -type d -name 'utdid2' 2>/dev/null); do
             c=$(find "$d" -type f 2>/dev/null | wc -l); echo "DEL: $d ($c)"; rm -rf "$d"
           done
 
-      - name: Delete Tinker (hot patch — standalone)
+      - name: Delete Tinker
+        if: ${{ inputs.delete_tinker && !inputs.clean_only }}
         run: |
           cd /tmp/base
           find . -type d -name 'tinker' 2>/dev/null | while read d; do
             c=$(find "$d" -type f 2>/dev/null | wc -l); echo "DEL: $d ($c)"; rm -rf "$d"
           done
 
-      - name: Summary
-        run: |
-          echo "Before: $BEFORE smali files"
-          echo "After: $(find /tmp/base -name '*.smali' | wc -l) smali files"
-          echo ""
-          echo "NOT deleted yet: ad SDK, LuckyCat, push, device register, tracking, downloader"
-
       - name: Build
         run: |
-          /opt/apktool b /tmp/base -o /tmp/unsigned.apk 2>&1 | tail -5
+          if [ "${{ inputs.clean_only }}" = "true" ]; then
+            # Skip decode/rebuild, sign original APK directly
+            cp /tmp/$APK_NAME /tmp/unsigned.apk
+          else
+            /opt/apktool b /tmp/base -o /tmp/unsigned.apk 2>&1 | tail -5
+          fi
           ls -lh /tmp/unsigned.apk
 
       - name: Sign
@@ -85,10 +82,10 @@ jobs:
           mv /tmp/unsigned.apk /tmp/clean.apk
           ls -lh /tmp/clean.apk && echo "SIGNED OK"
 
-      - name: Upload APK
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: clean-apk-v3
+          name: clean-apk
           path: /tmp/clean.apk
           retention-days: 30
 
