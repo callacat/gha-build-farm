@@ -26,58 +26,47 @@ jobs:
         run: |
           curl -sL "$OFFICIAL_URL" -o /tmp/$APK_NAME -w "HTTP %{http_code}, size: %{size_download}\n"
           ls -lh /tmp/$APK_NAME
-          unzip -l /tmp/$APK_NAME 'lib/*' 2>/dev/null | head -5
 
-      - name: Upload official APK to release cache
+      - name: Upload to release cache
         run: |
           gh release upload apk-assets "/tmp/$APK_NAME#official_$APK_NAME" \
             -R ${{ github.repository }} --clobber 2>/dev/null || true
-          echo "Cached"
 
       - name: Decode
         run: |
           /opt/apktool d /tmp/$APK_NAME -o /tmp/base -f 2>&1 | tail -3
-          echo "libs: $(find /tmp/base/lib -name '*.so' | wc -l)"
-          find /tmp/base/lib -type d | sort
           echo "BEFORE=$(find /tmp/base -name '*.smali' | wc -l)" >> $GITHUB_ENV
 
-      # Delete SDKs
-      - name: Delete ad SDK
+      # v1: safe deletions only — standalone modules, no cross-references expected
+      - name: Delete non-core widgets
         run: |
           cd /tmp/base
-          for dir in */com/bytedance/android/ad */com/pangle; do
-            find . -type d -path "$dir" 2>/dev/null | while read d; do
-              c=$(find "$d" -type f 2>/dev/null | wc -l); echo "DEL: $d ($c files)"; rm -rf "$d"
-            done
-          done
-
-      - name: Delete LuckyCat
-        run: |
-          cd /tmp/base
-          find . -type d -name 'luckycat' -o -type d -name 'luckydog' 2>/dev/null | while read d; do
-            c=$(find "$d" -type f | wc -l); echo "DEL: $d ($c)"; rm -rf "$d"
-          done
-
-      - name: Delete push + tracking + Tinker + Alipay
-        run: |
-          cd /tmp/base
-          for path in push deviceregister mannor agilelogger message tinker downloadlib alipay; do
-            find . -type d -name "$path" 2>/dev/null | while read d; do
+          for name in redpacket redpacketpattern welfaretask ecomorder coldstart; do
+            find . -type d -name "$name" 2>/dev/null | while read d; do
               c=$(find "$d" -type f 2>/dev/null | wc -l); echo "DEL: $d ($c)"; rm -rf "$d"
             done
           done
 
-      - name: Delete widgets
+      - name: Delete Alipay SDK (payment not core to reading)
         run: |
           cd /tmp/base
-          for w in redpacket redpacketpattern welfaretask ecomorder coldstart; do
-            find . -type d -name "$w" 2>/dev/null | while read d; do echo "DEL: $d"; rm -rf "$d"; done
+          find . -type d -name 'alipay' -o -type d -name 'utdid2' 2>/dev/null | while read d; do
+            c=$(find "$d" -type f 2>/dev/null | wc -l); echo "DEL: $d ($c)"; rm -rf "$d"
+          done
+
+      - name: Delete Tinker (hot patch — standalone)
+        run: |
+          cd /tmp/base
+          find . -type d -name 'tinker' 2>/dev/null | while read d; do
+            c=$(find "$d" -type f 2>/dev/null | wc -l); echo "DEL: $d ($c)"; rm -rf "$d"
           done
 
       - name: Summary
         run: |
           echo "Before: $BEFORE smali files"
           echo "After: $(find /tmp/base -name '*.smali' | wc -l) smali files"
+          echo ""
+          echo "NOT deleted yet: ad SDK, LuckyCat, push, device register, tracking, downloader"
 
       - name: Build
         run: |
