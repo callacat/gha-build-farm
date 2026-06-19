@@ -4,8 +4,8 @@ set -euo pipefail
 mkdir -p patches
 
 # 1. Manifest: appComponentFactory
-grep -n 'appComponentFactory' official_smali/AndroidManifest.xml > patches/manifest-official.txt
-grep -n 'appComponentFactory' modded_smali/AndroidManifest.xml > patches/manifest-modded.txt
+grep -n 'appComponentFactory' official_smali/AndroidManifest.xml > patches/manifest-official.txt 2>/dev/null || true
+grep -n 'appComponentFactory' modded_smali/AndroidManifest.xml > patches/manifest-modded.txt 2>/dev/null || true
 echo "Official: $(cat patches/manifest-official.txt)"
 echo "Modded:  $(cat patches/manifest-modded.txt)"
 
@@ -31,7 +31,7 @@ echo "DPatch files: $(wc -l < /tmp/dpatch.list)"
 
 # 4. Lancet declarations
 grep -rn 'Lancet\|@Proxy\|@BaseProxy\|@ProxyField' modded_smali/smali*/ --include='*.smali' 2>/dev/null \
-  | grep -v '\.\.\/' > patches/lancet-declarations.txt
+  | grep -v '\.\.\/' > patches/lancet-declarations.txt || true
 echo "Lancet declarations: $(wc -l < patches/lancet-declarations.txt)"
 
 # 5. Also grab the official versions of modified files for diff

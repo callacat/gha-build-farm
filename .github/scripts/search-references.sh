@@ -16,7 +16,7 @@ for spec in \
 
   name="${spec%%:*}"
   pattern="${spec#*:}"
-  grep -rn "$pattern" smali*/ --include="*.smali" 2>/dev/null | head -300 > "../patches/references/${name}.txt"
+  grep -rn "$pattern" smali*/ --include="*.smali" 2>/dev/null | head -300 > "../patches/references/${name}.txt" || true
   count=$(wc -l < "../patches/references/${name}.txt")
   printf "  %-20s %d lines\n" "${name}:" "$count"
 done
