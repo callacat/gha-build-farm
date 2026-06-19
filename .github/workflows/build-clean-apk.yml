@@ -3,25 +3,25 @@ on:
   workflow_dispatch:
     inputs:
       delete_safe:
-        description: 'Delete safe modules (widgets+alipay)'
+        description: Delete safe modules
         type: boolean
         default: true
       delete_tinker:
-        description: 'Delete Tinker hot patch'
+        description: Delete Tinker
         type: boolean
         default: false
       clean_only:
-        description: 'Only repack and sign, no deletion'
+        description: Only sign no changes
         type: boolean
         default: false
       binary_diff:
-        description: 'Run binary diff (official vs modded .so + DEX)'
+        description: Compare official vs modded native libs
         type: boolean
         default: false
 env:
-  MODDED_URL: https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie_novel_7.2.4.19.apk
-  OFFICIAL_URL: https://cloud.dsdog.tk/d/google/temp/%E7%95%AA%E8%8C%84%E5%85%8D%E8%B4%B9%E5%B0%8F%E8%AF%B4_7.2.4.32.apk?sign=xUavME2Rt4Vf1FTbCppPq7sU8bRUFh29hrbIhdsXon4=:0
-  APK_NAME: fanqie_novel_7.2.4.32.apk
+  MODDED: https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie_novel_7.2.4.19.apk
+  OFFICIAL: https://cloud.dsdog.tk/d/google/temp/%E7%95%AA%E8%8C%84%E5%85%8D%E8%B4%B9%E5%B0%8F%E8%AF%B4_7.2.4.32.apk?sign=xUavME2Rt4Vf1FTbCppPq7sU8bRUFh29hrbIhdsXon4=:0
+  APK: fanqie_novel_7.2.4.32.apk
 jobs:
   build:
     runs-on: ubuntu-22.04
@@ -32,90 +32,71 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Install tools
-        run: |
+      - run: |
           curl -sL "https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar" -o /opt/apktool.jar
           printf '#!/bin/bash\njava -jar /opt/apktool.jar "$@"\n' > /opt/apktool && chmod +x /opt/apktool
 
-      - name: Download official arm64 APK
-        run: |
-          curl -sL "$OFFICIAL_URL" -o /tmp/$APK_NAME -w "HTTP %{http_code}, size: %{size_download}\n"
+      - run: curl -sL "$OFFICIAL" -o /tmp/$APK -w "OFF: HTTP %{http_code}, size: %{size_download}\n"
 
-      - name: Decode
-        if: ${{ !inputs.clean_only }}
-        run: |
-          /opt/apktool d /tmp/$APK_NAME -o /tmp/base -f 2>&1 | tail -3
+      - if: ${{ !inputs.clean_only }}
+        run: /opt/apktool d /tmp/$APK -o /tmp/base -f 2>&1 | tail -3
 
-      - name: Delete safe modules
-        if: ${{ inputs.delete_safe && !inputs.clean_only }}
+      - if: ${{ inputs.delete_safe && !inputs.clean_only }}
         run: |
           cd /tmp/base
           for w in redpacket redpacketpattern welfaretask ecomorder coldstart; do
-            find . -type d -name "$w" 2>/dev/null | while read d; do echo "DEL: $d"; rm -rf "$d"; done
+            find . -type d -name "$w" 2>/dev/null | while read d; do rm -rf "$d"; done
           done
-          for d in $(find . -type d -name 'alipay' -o -type d -name 'utdid2' 2>/dev/null); do
-            c=$(find "$d" -type f 2>/dev/null | wc -l); echo "DEL: $d ($c)"; rm -rf "$d"
-          done
+          for d in $(find . -type d -name 'alipay' -o -type d -name 'utdid2' 2>/dev/null); do rm -rf "$d"; done
 
-      - name: Delete Tinker
-        if: ${{ inputs.delete_tinker && !inputs.clean_only }}
-        run: |
-          cd /tmp/base
-          find . -type d -name 'tinker' 2>/dev/null | while read d; do
-            c=$(find "$d" -type f 2>/dev/null | wc -l); echo "DEL: $d ($c)"; rm -rf "$d"
-          done
+      - if: ${{ inputs.delete_tinker && !inputs.clean_only }}
+        run: find /tmp/base -type d -name 'tinker' 2>/dev/null | while read d; do rm -rf "$d"; done
 
-      - name: Build
-        run: |
+      - run: |
           if [ "${{ inputs.clean_only }}" = "true" ]; then
-            # Skip decode/rebuild, sign original APK directly
-            cp /tmp/$APK_NAME /tmp/unsigned.apk
+            cp /tmp/$APK /tmp/unsigned.apk
           else
             /opt/apktool b /tmp/base -o /tmp/unsigned.apk 2>&1 | tail -5
           fi
           ls -lh /tmp/unsigned.apk
 
-      - name: Sign
-        run: |
+      - run: |
           keytool -genkey -v -keystore /tmp/debug.keystore -alias debug \
             -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass android -keypass android \
-            -dname "CN=Clean, O=Clean, C=CN" 2>&1
+            -dname "CN=Clean,O=Clean,C=CN" 2>&1
           jarsigner -sigalg SHA1withRSA -digestalg SHA1 \
             -keystore /tmp/debug.keystore -storepass android \
             /tmp/unsigned.apk debug 2>&1 | tail -3
-          mv /tmp/unsigned.apk /tmp/clean.apk
-          ls -lh /tmp/clean.apk && echo "SIGNED OK"
+          mv /tmp/unsigned.apk /tmp/clean.apk && echo "SIGNED OK"
 
-      - name: Upload
+      - name: Upload clean APK
         uses: actions/upload-artifact@v4
         with:
           name: clean-apk
           path: /tmp/clean.apk
           retention-days: 30
 
-      - name: Binary diff (official vs modded)
+      - name: Binary diff .so and DEX
         if: ${{ inputs.binary_diff }}
         run: |
-          curl -sL "$MODDED_URL" -o /tmp/m.apk -w "MOD: HTTP %{http_code}, size: %{size_download}\n"
-          echo "=== SIZE DIFF ==="
-          unzip -l /tmp/$APK_NAME 'lib/arm64-v8a/*.so' 2>/dev/null | awk '/\.so/{print $4,$1}' | sort > /tmp/oa.txt
-          unzip -l /tmp/m.apk 'lib/arm64-v8a/*.so' 2>/dev/null | awk '/\.so/{print $4,$1}' | sort > /tmp/ma.txt
-          join /tmp/oa.txt /tmp/ma.txt | awk '{d=$2-$3;d=d<0?-d:d}d>100{print $1" off="$2" mod="$3}'
-          join -v2 /tmp/oa.txt /tmp/ma.txt | awk '{print "MODONLY: "$1}'
-          join -v1 /tmp/oa.txt /tmp/ma.txt | awk '{print "OFFONLY: "$1}'
-          echo "=== HEX DIFF ==="
+          curl -sL "$MODDED" -o /tmp/mapk -w "MOD: HTTP %{http_code}, size: %{size_download}\n"
+          unzip -l /tmp/$APK 'lib/arm64-v8a/*.so' 2>/dev/null | awk '/\.so/{print$4,$1}' | sort > /tmp/a.txt
+          unzip -l /tmp/mapk 'lib/arm64-v8a/*.so' 2>/dev/null | awk '/\.so/{print$4,$1}' | sort > /tmp/b.txt
+          join /tmp/a.txt /tmp/b.txt | awk '{d=$2-$3;d=d<0?-d:d}d>100{print"DIFF: "$1" off="$2" mod="$3}'
+          join -v2 /tmp/a.txt /tmp/b.txt | awk '{print"MODONLY: "$1}'
+          join -v1 /tmp/a.txt /tmp/b.txt | awk '{print"OFFONLY: "$1}'
           mkdir -p /tmp/ol /tmp/ml
-          unzip -q /tmp/$APK_NAME 'lib/arm64-v8a/*.so' -d /tmp/ol
-          unzip -q /tmp/m.apk 'lib/arm64-v8a/*.so' -d /tmp/ml
+          unzip -q /tmp/$APK 'lib/arm64-v8a/*.so' -d /tmp/ol
+          unzip -q /tmp/mapk 'lib/arm64-v8a/*.so' -d /tmp/ml
           cd /tmp/ol/lib/arm64-v8a
           for so in *.so; do
             mf="/tmp/ml/lib/arm64-v8a/$so"; [ ! -f "$mf" ] && continue
             s1=$(stat -c%s "$so"); s2=$(stat -c%s "$mf"); d=$((s1-s2)); d=${d#-}
             [ "$d" -le 100 ] && continue
-            export FN="$so" FP="$mf" SZA="$s1" SZB="$s2"
-            python3 << 'XEOF'
-import os
+            export FN="$so" FP="$mf" S1="$s1" S2="$s2"
+            python3 /tmp/hd.py 2>/dev/null || python3 -c "
+import os,sys
 so=os.environ['FN']
 d1=open('/tmp/ol/lib/arm64-v8a/'+so,'rb').read()
 d2=open(os.environ['FP'],'rb').read()
@@ -129,14 +110,17 @@ for i in range(0,min(len(d1),len(d2)),16):
             sb=''.join(chr(b) if 32<=b<=126 else '.' for b in d2[i:i+16])
             print('@%05x'%i);print('O:'+a+' '+sa);print('M:'+b+' '+sb)
         r+=1
-print(so+':'+str(r)+' off='+os.environ['SZA']+' mod='+os.environ['SZB'])
-XEOF
+print(so+': '+str(r)+' off='+os.environ['S1']+' mod='+os.environ['S2'])
+"
           done
-          echo "=== DEX HASH ==="
-          python3 << 'XEOF'
+
+      - name: DEX hash compare
+        if: ${{ inputs.binary_diff }}
+        run: |
+          python3 -c "
 import zipfile,hashlib
-o=zipfile.ZipFile('/tmp/official.apk')
-m=zipfile.ZipFile('/tmp/mod.apk')
+o=zipfile.ZipFile('/tmp/$APK')
+m=zipfile.ZipFile('/tmp/mapk')
 seen=set()
 for f in sorted(set(o.namelist())|set(m.namelist())):
     if not f.endswith('.dex') or f in seen: continue
@@ -148,15 +132,9 @@ for f in sorted(set(o.namelist())|set(m.namelist())):
             print('DIFF:'+f+' off='+str(len(od))+' mod='+str(len(md)))
     elif od: print('OFFONLY:'+f+' ('+str(len(od))+')')
     elif md: print('MODONLY:'+f+' ('+str(len(md))+')')
-XEOF
-        uses: actions/upload-artifact@v4
-        with:
-          name: clean-apk
-          path: /tmp/clean.apk
-          retention-days: 30
+"
 
-      - name: Delete old runs
-        uses: Mattraks/delete-workflow-runs@v2
+      - uses: Mattraks/delete-workflow-runs@v2
         with:
           retain_days: 0
           keep_minimum_runs: 5
