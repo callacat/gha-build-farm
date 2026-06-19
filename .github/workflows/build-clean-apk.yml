@@ -1,0 +1,317 @@
+name: Build Clean APK
+on:
+  workflow_dispatch:
+    inputs:
+      apk_name:
+        description: 'APK file name'
+        required: false
+        default: 'novelapp_45466779a_v1327_72432_72432_d367_1781612828.apk'
+
+env:
+  OFFICIAL_URL: https://lf9-apk.ugapk.cn/package/apk/novelapp/1327_72432_72432/15/novelapp_45466779a_v1327_72432_72432_d367_1781612828.apk?v=1781612834
+  APK_NAME: ${{ inputs.apk_name }}
+
+jobs:
+  setup:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    outputs:
+      artifact: ${{ steps.upload.outputs.artifact }}
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Install tools
+        run: |
+          curl -sL "https://github.com/skylot/jadx/releases/download/v1.5.5/jadx-1.5.5.zip" -o /tmp/jadx.zip
+          unzip -q /tmp/jadx.zip -d /opt/jadx && chmod +x /opt/jadx/bin/jadx
+          curl -sL "https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar" -o /opt/apktool.jar
+          printf '#!/bin/bash\njava -jar /opt/apktool.jar "$@"\n' > /opt/apktool && chmod +x /opt/apktool
+
+      - name: Download official APK
+        run: |
+          # Check release cache first
+          if gh release download apk-assets -p "official_$APK_NAME" -R ${{ github.repository }} --dir /tmp 2>/dev/null; then
+            echo "Downloaded from release cache"
+            mv /tmp/official_$APK_NAME /tmp/$APK_NAME
+          else
+            curl -sL "$OFFICIAL_URL" -o /tmp/$APK_NAME -w "HTTP %{http_code}, size: %{size_download}\n"
+            # Cache for next run (best effort)
+            gh release upload apk-assets "/tmp/$APK_NAME#official_$APK_NAME" \
+              -R ${{ github.repository }} --clobber 2>/dev/null || true
+          fi
+          ls -lh /tmp/$APK_NAME
+
+      - name: Decode official APK
+        run: |
+          /opt/apktool d /tmp/$APK_NAME -o /tmp/base -f 2>&1 | tail -5
+          echo "Smali files: $(find /tmp/base -name '*.smali' | wc -l)"
+
+      # ── Phase 1: Manifest cleanup ──
+      - name: Clean AndroidManifest.xml
+        run: |
+          cd /tmp/base
+
+          # Remove dangerous permissions (keep basic INTERNET/NETWORK/WAKE_LOCK)
+          # We edit the manifest in-place
+          # REMOVE: CAMERA, LOCATION, CONTACTS, SMS-adjacent, MIC, STORAGE, badging
+          sed -i '/android.permission.CAMERA/d' AndroidManifest.xml
+          sed -i '/android.permission.ACCESS_FINE_LOCATION/d' AndroidManifest.xml
+          sed -i '/android.permission.ACCESS_COARSE_LOCATION/d' AndroidManifest.xml
+          sed -i '/android.permission.READ_CONTACTS/d' AndroidManifest.xml
+          sed -i '/android.permission.RECORD_AUDIO/d' AndroidManifest.xml
+          sed -i '/android.permission.MANAGE_EXTERNAL_STORAGE/d' AndroidManifest.xml
+          sed -i '/android.permission.READ_EXTERNAL_STORAGE/d' AndroidManifest.xml
+          sed -i '/android.permission.WRITE_EXTERNAL_STORAGE/d' AndroidManifest.xml
+          sed -i '/android.permission.REQUEST_INSTALL_PACKAGES/d' AndroidManifest.xml
+          sed -i '/android.permission.QUERY_ALL_PACKAGES/d' AndroidManifest.xml
+          sed -i '/android.permission.SYSTEM_ALERT_WINDOW/d' AndroidManifest.xml
+          sed -i '/android.permission.DETECT_SCREEN_CAPTURE/d' AndroidManifest.xml
+          sed -i '/android.permission.DETECT_SCREEN_RECORDING/d' AndroidManifest.xml
+          sed -i '/android.permission.HIGH_SAMPLING_RATE_SENSORS/d' AndroidManifest.xml
+          sed -i '/android.permission.HIDE_OVERLAY_WINDOWS/d' AndroidManifest.xml
+          sed -i '/android.permission.USE_BIOMETRIC/d' AndroidManifest.xml
+          sed -i '/android.permission.USE_FINGERPRINT/d' AndroidManifest.xml
+          sed -i '/android.permission.WRITE_CALENDAR/d' AndroidManifest.xml
+          sed -i '/android.permission.FLASHLIGHT/d' AndroidManifest.xml
+          sed -i '/android.permission.BROADCAST_STICKY/d' AndroidManifest.xml
+          # Remove vendor badging permissions
+          sed -i '/com\.sec\.android\.provider\.badge/d' AndroidManifest.xml
+          sed -i '/com\.htc\.launcher\.permission/d' AndroidManifest.xml
+          sed -i '/com\.sonyericsson\.home/d' AndroidManifest.xml
+          sed -i '/com\.sonymobile\.home/d' AndroidManifest.xml
+          sed -i '/com\.majeur\.launcher/d' AndroidManifest.xml
+          sed -i '/com\.huawei\.android\.launcher/d' AndroidManifest.xml
+          sed -i '/com\.oppo\.launcher/d' AndroidManifest.xml
+          sed -i '/com\.anddoes\.launcher/d' AndroidManifest.xml
+          sed -i '/com\.xiaomi\.market/d' AndroidManifest.xml
+          sed -i '/com\.huawei\.appmarket/d' AndroidManifest.xml
+          sed -i '/com\.hihonor\.appmarket/d' AndroidManifest.xml
+          sed -i '/android\.launcher\.permission/d' AndroidManifest.xml
+          sed -i '/android\.permission\.INSTALL_SHORTCUT/d' AndroidManifest.xml
+          sed -i '/android\.permission\.UNINSTALL_SHORTCUT/d' AndroidManifest.xml
+          sed -i '/android\.permission\.READ_APP_BADGE/d' AndroidManifest.xml
+          sed -i '/android\.permission\.UPDATE_APP_BADGE/d' AndroidManifest.xml
+          # Remove com.soter, com.dragon.read.permission
+          sed -i '/com\.soter\.permission/d' AndroidManifest.xml
+          sed -i '/com\.dragon\.read\.permission/d' AndroidManifest.xml
+          sed -i '/com\.tencent\.msdk\.permission/d' AndroidManifest.xml
+          sed -i '/com\.google\.android\.launcher/d' AndroidManifest.xml
+          sed -i '/com\.hihonor\.push\.permission/d' AndroidManifest.xml
+          # Remove accelerometer hardware requirement
+          sed -i '/android\.hardware\.sensor\.accelerometer/d' AndroidManifest.xml
+
+          echo "Permissions cleaned"
+
+      - name: Remove update check & non-core manifest components
+        run: |
+          cd /tmp/base
+          # Remove LuckyCat activities
+          sed -i '/com\.bytedance\.ug\.sdk\.luckycat/d' AndroidManifest.xml
+          # Remove push alliance components
+          sed -i '/com\.bytedance\.push\.alliance/d' AndroidManifest.xml
+          sed -i '/com\.bytedance\.push\.notification/d' AndroidManifest.xml
+          sed -i '/com\.bytedance\.push\.event/d' AndroidManifest.xml
+          sed -i '/com\.bytedance\.push\.HwSmartFenceService/d' AndroidManifest.xml
+          # Remove vendor push
+          sed -i '/com\.xiaomi\.mipush/d' AndroidManifest.xml
+          sed -i '/com\.xiaomi\.push/d' AndroidManifest.xml
+          sed -i '/com\.huawei\.hms\.support\.api\.push/d' AndroidManifest.xml
+          sed -i '/com\.vivo\.push/d' AndroidManifest.xml
+          sed -i '/com\.heytap\.msp\.push/d' AndroidManifest.xml
+          sed -i '/com\.dragon\.read\.push/d' AndroidManifest.xml
+          sed -i '/com\.ss\.android\.message/d' AndroidManifest.xml
+          # Remove Tinker
+          sed -i '/com\.tencent\.tinker/d' AndroidManifest.xml
+          # Remove downloader
+          sed -i '/com\.ss\.android\.downloadlib/d' AndroidManifest.xml
+          # Remove Alipay
+          sed -i '/com\.alipay\.sdk/d' AndroidManifest.xml
+          # Remove RedPacket
+          sed -i '/com\.dragon\.read\.appwidget\.redpacket/d' AndroidManifest.xml
+          # Remove coldstart
+          sed -i '/com\.dragon\.read\.coldstart/d' AndroidManifest.xml
+          # Remove Pandora / AppFactory (keep official stock)
+          # Actually we KEEP the official CoreComponentFactory
+          sed -i 's/android:appComponentFactory="[^"]*"/android:appComponentFactory="androidx.core.app.CoreComponentFactory"/' AndroidManifest.xml
+
+          echo "Manifest components cleaned"
+
+      # ── Phase 2: Delete SDK directories ──
+      - name: Delete ad SDK directories
+        run: |
+          cd /tmp/base
+          # Find and delete ad SDK dirs
+          for path in \
+            */com/bytedance/android/ad \
+            */com/pangle \
+            */com/bytedance/sdk/open \
+            */com/bytedance/tea \
+            */com/bytedance/bdmediation; do
+            find . -type d -path "$path" 2>/dev/null | while read d; do
+              echo "DELETING: $d ($(find "$d" -type f 2>/dev/null | wc -l) files)"
+              rm -rf "$d"
+            done
+          done
+
+      - name: Delete LuckyCat directory
+        run: |
+          cd /tmp/base
+          find . -type d -path '*/com/bytedance/ug/sdk/luckycat' 2>/dev/null | while read d; do
+            echo "DELETING: $d ($(find "$d" -type f 2>/dev/null | wc -l) files)"
+            rm -rf "$d"
+          done
+          find . -type d -path '*/com/bytedance/ug/sdk/luckydog' 2>/dev/null | while read d; do
+            echo "DELETING: $d ($(find "$d" -type f 2>/dev/null | wc -l) files)"
+            rm -rf "$d"
+          done
+
+      - name: Delete push alliance
+        run: |
+          cd /tmp/base
+          find . -type d -path '*/com/bytedance/push' 2>/dev/null | while read d; do
+            echo "DELETING: $d ($(find "$d" -type f 2>/dev/null | wc -l) files)"
+            rm -rf "$d"
+          done
+          find . -type d -path '*/com/ss/android/message' 2>/dev/null | while read d; do
+            echo "DELETING: $d"
+            rm -rf "$d"
+          done
+
+      - name: Delete device register & tracking
+        run: |
+          cd /tmp/base
+          find . -type d -path '*/com/ss/android/deviceregister' 2>/dev/null | while read d; do
+            echo "DELETING: $d ($(find "$d" -type f 2>/dev/null | wc -l) files)"
+            rm -rf "$d"
+          done
+          find . -type d -path '*/com/ss/android/agilelogger' 2>/dev/null | while read d; do
+            echo "DELETING: $d"
+            rm -rf "$d"
+          done
+          # OAID / deviceid helpers
+          find . -type d -path '*/com/bytedance/ss/a/a' 2>/dev/null | while read d; do
+            echo "DELETING: $d"
+            rm -rf "$d"
+          done
+
+      - name: Delete monitor/collector
+        run: |
+          cd /tmp/base
+          find . -type d -path '*/com/ss/android/mannor' 2>/dev/null | while read d; do
+            echo "DELETING: $d"
+            rm -rf "$d"
+          done
+          find . -type d -path '*/com/ss/android/bd' 2>/dev/null | while read d; do
+            echo "DELETING: $d"
+            rm -rf "$d"
+          done
+
+      - name: Delete vendor push libs
+        run: |
+          cd /tmp/base
+          for dir in xiaomi huawei honor vivo oppo heytop; do
+            find . -type d -path "*/push.sdk.$dir" -o -path "*/push/$dir" 2>/dev/null | while read d; do
+              echo "DELETING: $d"
+              rm -rf "$d"
+            done
+          done
+
+      - name: Delete Tinker (hot patch)
+        run: |
+          cd /tmp/base
+          find . -type d -path '*/com/tencent/tinker' 2>/dev/null | while read d; do
+            echo "DELETING: $d"
+            rm -rf "$d"
+          done
+
+      - name: Delete downloader
+        run: |
+          cd /tmp/base
+          find . -type d -path '*/com/ss/android/downloadlib' 2>/dev/null | while read d; do
+            echo "DELETING: $d"
+            rm -rf "$d"
+          done
+          find . -type d -path '*/com/ss/android/downloader' 2>/dev/null | while read d; do
+            echo "DELETING: $d"
+            rm -rf "$d"
+          done
+
+      - name: Delete Alipay SDK
+        run: |
+          cd /tmp/base
+          find . -type d -path '*/com/alipay' 2>/dev/null | while read d; do
+            echo "DELETING: $d"
+            rm -rf "$d"
+          done
+          find . -type d -path '*/com/ta/utdid2' 2>/dev/null | while read d; do
+            echo "DELETING: $d"
+            rm -rf "$d"
+          done
+
+      - name: Delete RedPacket / ColdStart widgets
+        run: |
+          cd /tmp/base
+          find . -type d -path '*/com/dragon/read/appwidget/redpacket' 2>/dev/null | while read d; do
+            echo "DELETING: $d"
+            rm -rf "$d"
+          done
+          find . -type d -path '*/com/dragon/read/appwidget/redpacketpattern' 2>/dev/null | while read d; do
+            echo "DELETING: $d"
+            rm -rf "$d"
+          done
+          find . -type d -path '*/com/dragon/read/appwidget/welfaretask' 2>/dev/null | while read d; do
+            echo "DELETING: $d"
+            rm -rf "$d"
+          done
+          find . -type d -path '*/com/dragon/read/coldstart' 2>/dev/null | while read d; do
+            echo "DELETING: $d"
+            rm -rf "$d"
+          done
+          find . -type d -path '*/com/dragon/read/appwidget/ecomorder' 2>/dev/null | while read d; do
+            echo "DELETING: $d"
+            rm -rf "$d"
+          done
+
+      - name: Summary of deleted files
+        run: |
+          echo "=== BEFORE/AFTER ==="
+          echo "Before: 253353 smali files (from modded)"
+          echo "After: $(find /tmp/base -name '*.smali' | wc -l) smali files"
+
+      # ── Phase 3: Build ──
+      - name: Rebuild APK
+        run: |
+          cd /tmp
+          # Rebuild with apktool
+          /opt/apktool b /tmp/base -o /tmp/unsigned.apk 2>&1 | tail -10
+          ls -lh /tmp/unsigned.apk
+
+      - name: Generate test keystore and sign
+        run: |
+          keytool -genkey -v -keystore /tmp/debug.keystore -alias debug \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass android -keypass android \
+            -dname "CN=CleanNovel, O=CleanNovel, C=CN" 2>&1
+          # Sign with jarsigner (works everywhere)
+          jarsigner -verbose -sigalg SHA1withRSA -digestalg SHA1 \
+            -keystore /tmp/debug.keystore -storepass android \
+            /tmp/unsigned.apk debug 2>&1 | tail -5
+          mv /tmp/unsigned.apk /tmp/clean.apk
+          ls -lh /tmp/clean.apk
+          echo "SIGNED OK"
+
+      - name: Upload clean APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: clean-apk-v1
+          path: /tmp/clean.apk
+          retention-days: 30
+
+      - name: Delete old runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          retain_days: 0
+          keep_minimum_runs: 5
