@@ -1,85 +1,183 @@
-name: Extract Signature Bypass Patches
+name: Extract Fanqie Novel Patches
+
 on:
-  workflow_dispatch: {}
-env:
-  OFFICIAL_URL: https://cloud.dsdog.tk/d/google/temp/%E7%95%AA%E8%8C%84%E5%85%8D%E8%B4%B9%E5%B0%8F%E8%AF%B4_7.2.4.32.apk?sign=xUavME2Rt4Vf1FTbCppPq7sU8bRUFh29hrbIhdsXon4=:0
-  MODDED_URL: https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie_novel_7.2.4.19.apk
+  workflow_dispatch:
+    inputs:
+      apk-mod:
+        description: 'APK asset name to download from release (modded)'
+        required: false
+        default: 'fanqie_novel_7.2.4.19.apk'
+        type: string
+      apk-official:
+        description: 'APK asset name to download from release (official)'
+        required: false
+        default: 'fanqie_novel_official_7.2.4.32.apk'
+        type: string
+
 jobs:
-  diff:
+  extract:
     runs-on: ubuntu-22.04
-    timeout-minutes: 15
+    timeout-minutes: 60
     steps:
-      - uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
+      - uses: actions/checkout@v4
 
-      - name: Get APKs
-        run: curl -sL "$OFFICIAL_URL" -o /tmp/off.apk -w "OFF: HTTP %{http_code}, size: %{size_download}\n"
-      - name: Get modded
-        run: curl -sL "$MODDED_URL" -o /tmp/mod.apk -w "MOD: HTTP %{http_code}, size: %{size_download}\n"
-
-      - name: List native libs
+      - name: Download APKs from release
         run: |
-          echo "=== OFFICIAL==="; unzip -l /tmp/off.apk 'lib/arm64-v8a/*.so' 2>/dev/null | awk '/\.so/{print $4,$1}'
-          echo "=== MODDED==="; unzip -l /tmp/mod.apk 'lib/arm64-v8a/*.so' 2>/dev/null | awk '/\.so/{print $4,$1}'
+          RELEASE_URL="https://github.com/${{ github.repository }}/releases/download/apk-assets"
+          curl -sL -o modded.apk "$RELEASE_URL/${{ inputs.apk-mod }}"
+          curl -sL -o official.apk "$RELEASE_URL/${{ inputs.apk-official }}"
+          ls -lh *.apk
 
-      - name: Size diff
+      - name: Native lib size diff
         run: |
-          unzip -l /tmp/off.apk 'lib/arm64-v8a/*.so' 2>/dev/null | awk '/\.so/{print $4,$1}' | sort > /tmp/o.txt
-          unzip -l /tmp/mod.apk 'lib/arm64-v8a/*.so' 2>/dev/null | awk '/\.so/{print $4,$1}' | sort > /tmp/m.txt
-          echo "=== SIZE DIFF ==="; join -j1 /tmp/o.txt /tmp/m.txt | awk '{d=$2-$3;d=d<0?-d:d} d>100{print "DIFF: "$1" off="$2" mod="$3" delta="($2-$3)}'
-          echo "=== MOD-ONLY ==="; join -v2 /tmp/o.txt /tmp/m.txt | awk '{print $1}'
+          echo "=== NATIVE LIB SIZE COMPARISON ==="
+          python3 -c "
+import zipfile
+off = zipfile.ZipFile('official.apk')
+mod = zipfile.ZipFile('modded.apk')
+off_libs = {f: off.getinfo(f).file_size for f in off.namelist() if f.startswith('lib/arm64-v8a/') and f.endswith('.so')}
+mod_libs = {f: mod.getinfo(f).file_size for f in mod.namelist() if f.startswith('lib/arm64-v8a/') and f.endswith('.so')}
+for f in sorted(set(list(off_libs.keys()) + list(mod_libs.keys()))):
+    os = off_libs.get(f, 0); ms = mod_libs.get(f, 0)
+    if os != ms:
+        print(f'SIZE-DIFF: {f} off={os} mod={ms} delta={ms-os}')
+        off_libs.pop(f, None)
+        mod_libs.pop(f, None)
+    else:
+        off_libs.pop(f, None)
+        mod_libs.pop(f, None)
+for f in sorted(mod_libs): print(f'MOD-ONLY: {f} size={mod_libs[f]}')
+print(f'Common identical: {len(off_libs)} libs match byte-for-byte')
+"
 
-      - name: Hex diff
+      - name: DEX hash comparison
         run: |
-          mkdir -p /tmp/ol /tmp/ml
-          unzip -q /tmp/off.apk 'lib/arm64-v8a/*.so' -d /tmp/ol 2>/dev/null
-          unzip -q /tmp/mod.apk 'lib/arm64-v8a/*.so' -d /tmp/ml 2>/dev/null
-          cd /tmp/ol/lib/arm64-v8a
-          for f in *.so; do
-            mf="/tmp/ml/lib/arm64-v8a/$f"; [ ! -f "$mf" ] && continue
-            os=$(stat -c%s "$f"); ms=$(stat -c%s "$mf")
-            d=$((os-ms)); d=${d#-}; [ $d -le 100 ] && continue
-            export F="$f" OF="$f" MF="$mf" OS="$os" MS="$ms"
-            python3 << 'EOF'
-import os
-f1="/tmp/ol/lib/arm64-v8a/"+os.environ['F']
-f2=os.environ['MF']
-d1=open(f1,'rb').read(); d2=open(f2,'rb').read()
-n=0
-for i in range(0,min(len(d1),len(d2)),16):
-    if d1[i:i+16]!=d2[i:i+16]:
-        if n<8:
-            s1=''.join(chr(b) if 32<=b<=126 else '.' for b in d1[i:i+16])
-            s2=''.join(chr(b) if 32<=b<=126 else '.' for b in d2[i:i+16])
-            print('@0x%05x'%i)
-            print('  off: '+' '.join('%02x'%b for b in d1[i:i+16])+'  '+s1)
-            print('  mod: '+' '.join('%02x'%b for b in d2[i:i+16])+'  '+s2)
-        n+=1
-print(os.environ['F']+': '+str(n)+' diff regions')
-EOF
-          done
-
-      - name: DEX hash
-        run: |
-          python3 << 'EOF'
-import zipfile,hashlib
-off=zipfile.ZipFile('/tmp/off.apk'); mod=zipfile.ZipFile('/tmp/mod.apk')
-seen=set()
-for f in off.namelist()+mod.namelist():
+          echo "=== DEX HASH COMPARISON ==="
+          python3 -c "
+import zipfile, hashlib
+off = zipfile.ZipFile('official.apk')
+mod = zipfile.ZipFile('modded.apk')
+seen = set()
+for f in off.namelist() + mod.namelist():
     if not f.endswith('.dex') or f in seen: continue
     seen.add(f)
-    od=off.read(f) if f in off.namelist() else None
-    md=mod.read(f) if f in mod.namelist() else None
+    od = off.read(f) if f in off.namelist() else None
+    md = mod.read(f) if f in mod.namelist() else None
     if od and md:
-        if hashlib.sha256(od).hexdigest()!=hashlib.sha256(md).hexdigest(): print('DIFF: '+f+' off='+str(len(od))+' mod='+str(len(md)))
-    elif od: print('OFF-ONLY: '+f+' ('+str(len(od))+')')
-    elif md: print('MOD-ONLY: '+f+' ('+str(len(md))+')')
-EOF
+        if hashlib.sha256(od).hexdigest() != hashlib.sha256(md).hexdigest():
+            print(f'DIFF: {f} off={len(od)} mod={len(md)}')
+    elif od: print(f'OFF-ONLY: {f} ({len(od)})')
+    elif md: print(f'MOD-ONLY: {f} ({len(md)})')
+off.close(); mod.close()
+"
 
-      - name: Delete old runs
-        uses: Mattraks/delete-workflow-runs@v2
+      - name: Set up Java & apktool
+        uses: actions/setup-java@v4
         with:
-          retain_days: 0
-          keep_minimum_runs: 5
+          distribution: temurin
+          java-version: 17
+
+      - name: Install apktool
+        run: |
+          curl -sL -o apktool.jar \
+            https://github.com/iBotPeaches/Apktool/releases/download/v2.11.1/apktool_2.11.1.jar
+
+      - name: Decompile official APK
+        run: java -jar apktool.jar d -f official.apk -o official_smali
+
+      - name: Decompile modded APK
+        run: java -jar apktool.jar d -f modded.apk -o modded_smali
+
+      - name: Extract DPatch framework & Lancet hooks
+        run: |
+          mkdir -p patches
+
+          # 1. Manifest: appComponentFactory
+          grep -n 'appComponentFactory' official_smali/AndroidManifest.xml > patches/manifest-official.txt
+          grep -n 'appComponentFactory' modded_smali/AndroidManifest.xml > patches/manifest-modded.txt
+          echo "Official: $(cat patches/manifest-official.txt)"
+          echo "Modded:  $(cat patches/manifest-modded.txt)"
+
+          # 2. Lancet getPackageInfo hooks
+          for f in zo4/b.smali uo4/l.smali; do
+            found=$(find modded_smali -path "smali*/$f" 2>/dev/null | head -1)
+            if [ -n "$found" ]; then
+              dest="patches/$(echo "$found" | sed 's|modded_smali/||')"
+              mkdir -p "$(dirname "$dest")"
+              cp "$found" "$dest"
+              echo "Lancet hook: $found"
+            fi
+          done
+
+          # 3. DPatch framework files
+          find modded_smali -path "*/pandora/core/*" -name "*.smali" 2>/dev/null > /tmp/dpatch.list
+          while IFS= read -r f; do
+            dest="patches/dpatch/$(echo "$f" | sed 's|modded_smali/||')"
+            mkdir -p "$(dirname "$dest")"
+            cp "$f" "$dest"
+          done < /tmp/dpatch.list
+          echo "DPatch files: $(wc -l < /tmp/dpatch.list)"
+
+          # 4. Comment-prefixed Lancet hooks
+          grep -rn 'Lancet\|@Proxy\|@BaseProxy\|@ProxyField' modded_smali/smali*/ --include='*.smali' 2>/dev/null \
+            | grep -v '\.\.\/' > patches/lancet-declarations.txt
+          echo "Lancet declarations: $(wc -l < patches/lancet-declarations.txt)"
+
+      - name: Search signature & device references
+        run: |
+          mkdir -p patches/references
+          cd modded_smali
+
+          for spec in \
+            "checkSign:checkSign|CheckSign|check_sign" \
+            "signEnv:checkSignEnv|checkSignRes" \
+            "novelParam:NovelCommonParam" \
+            "packageInfo:getPackageInfo|signatures|signingInfo" \
+            "signData:_sign|signData|sign_data" \
+            "device:DeviceRegisterManager|deviceId|oaid" \
+            "lancet:Lancet|@Proxy" \
+            "shadowhook:shadowhook|ShadowHook"; do
+
+            name="${spec%%:*}"
+            pattern="${spec#*:}"
+            grep -rn "$pattern" smali*/ --include="*.smali" 2>/dev/null | head -300 > "../patches/references/${name}.txt"
+            count=$(wc -l < "../patches/references/${name}.txt")
+            printf "  %-20s %d lines\n" "${name}:" "$count"
+          done
+
+          cd ..
+
+      - name: Find actual modified files (between official & modded)
+        run: |
+          python3 -c "
+import os
+modded = 'modded_smali'
+official = 'official_smali'
+count = 0
+for root, dirs, files in os.walk(modded):
+    for f in files:
+        if not f.endswith('.smali'): continue
+        mod_path = os.path.join(root, f)
+        off_path = mod_path.replace('modded_smali', 'official_smali', 1)
+        if not os.path.exists(off_path): continue
+        with open(mod_path) as a, open(off_path) as b:
+            if a.read() != b.read():
+                rel = os.path.relpath(mod_path, modded)
+                print(rel)
+                count += 1
+print('TOTAL_MODIFIED: %d' % count)
+" > patches/modified-files.txt
+          echo "=== Modified files ==="
+          wc -l < patches/modified-files.txt | xargs echo "Total:"
+
+      - name: Package & upload
+        run: |
+          tar czf /tmp/patches.tar.gz patches/
+          ls -lh /tmp/patches.tar.gz
+
+      - name: Upload patches
+        uses: actions/upload-artifact@v4
+        with:
+          name: fanqie-patches
+          path: patches/
+          retention-days: 90
