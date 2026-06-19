@@ -206,25 +206,55 @@ jobs:
           echo "After: $(find /tmp/base -name '*.smali' | wc -l) smali files"
 
       # ── Phase 3: Build ──
+      - name: Check lib structure
+        run: |
+          echo "=== LIB DIRECTORIES ==="
+          find /tmp/base/lib -type d | sort
+          echo "=== arm64-v8a libs ==="
+          ls /tmp/base/lib/arm64-v8a/ 2>/dev/null | head -5
+          echo "Total: $(find /tmp/base/lib -name '*.so' | wc -l)"
+
       - name: Rebuild APK
         run: |
-          cd /tmp
-          # Rebuild with apktool
           /opt/apktool b /tmp/base -o /tmp/unsigned.apk 2>&1 | tail -10
           ls -lh /tmp/unsigned.apk
 
-      - name: Generate test keystore and sign
+      - name: Sign and align
         run: |
+          # Generate keystore
           keytool -genkey -v -keystore /tmp/debug.keystore -alias debug \
             -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass android -keypass android \
             -dname "CN=CleanNovel, O=CleanNovel, C=CN" 2>&1
-          # Sign with jarsigner (works everywhere)
-          jarsigner -verbose -sigalg SHA1withRSA -digestalg SHA1 \
-            -keystore /tmp/debug.keystore -storepass android \
-            /tmp/unsigned.apk debug 2>&1 | tail -5
-          mv /tmp/unsigned.apk /tmp/clean.apk
+
+          # Verify APK contents
+          echo "=== APK CONTENTS (lib) ==="
+          unzip -l /tmp/unsigned.apk | grep 'lib/' | head -20
+
+          # Install SDK build-tools for zipalign+apksigner
+          echo "y" | ${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}/cmdline-tools/latest/bin/sdkmanager \
+            "build-tools;35.0.0" 2>/dev/null || true
+          ZIPALIGN=$(find /usr/local/lib/android/sdk -name zipalign 2>/dev/null | head -1)
+          APKSIGNER=$(find /usr/local/lib/android/sdk -name apksigner 2>/dev/null | head -1)
+
+          if [ -n "$ZIPALIGN" ] && [ -n "$APKSIGNER" ]; then
+            echo "Using SDK tools: zipalign + apksigner"
+            $ZIPALIGN -f -v 4 /tmp/unsigned.apk /tmp/aligned.apk 2>&1
+            $APKSIGNER sign --ks /tmp/debug.keystore --ks-pass pass:android \
+              --ks-key-alias debug /tmp/aligned.apk 2>&1
+            mv /tmp/aligned.apk /tmp/clean.apk
+          else
+            echo "Fallback: jarsigner"
+            jarsigner -verbose -sigalg SHA1withRSA -digestalg SHA1 \
+              -keystore /tmp/debug.keystore -storepass android \
+              /tmp/unsigned.apk debug 2>&1 | tail -5
+            mv /tmp/unsigned.apk /tmp/clean.apk
+          fi
+
+          # Verify APK
+          echo "=== FINAL APK ==="
           ls -lh /tmp/clean.apk
+          file /tmp/clean.apk
           echo "SIGNED OK"
 
       - name: Upload clean APK
