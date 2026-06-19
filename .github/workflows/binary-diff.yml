@@ -1,0 +1,226 @@
+name: Binary Diff — Official vs Modded
+on:
+  workflow_dispatch: {}
+env:
+  OFFICIAL_URL: https://cloud.dsdog.tk/d/google/temp/%E7%95%AA%E8%8C%84%E5%85%8D%E8%B4%B9%E5%B0%8F%E8%AF%B4_7.2.4.32.apk?sign=xUavME2Rt4Vf1FTbCppPq7sU8bRUFh29hrbIhdsXon4=:0
+  MODDED_URL: https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie_novel_7.2.4.19.apk
+jobs:
+  diff:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Install tools
+        run: |
+          apt-get update -qq && apt-get install -y -qq xxd bsdiff 2>&1 | tail -3
+          pip3 install bsdiff4 pyelftools --break-system-packages -q 2>/dev/null || true
+
+      - name: Download both APKs
+        run: |
+          curl -sL "$OFFICIAL_URL" -o /tmp/official.apk -w "OFF: HTTP %{http_code}, size: %{size_download}\n"
+          curl -sL "$MODDED_URL" -o /tmp/modded.apk -w "MOD: HTTP %{http_code}, size: %{size_download}\n"
+
+      - name: Extract lib directories
+        run: |
+          mkdir -p /tmp/off_lib /tmp/mod_lib
+          unzip -q -o /tmp/official.apk 'lib/arm64-v8a/*' -d /tmp/off_lib 2>/dev/null
+          unzip -q -o /tmp/modded.apk 'lib/arm64-v8a/*' -d /tmp/mod_lib 2>/dev/null
+          echo "=== OFFICIAL LIBS ==="
+          ls -1 /tmp/off_lib/lib/arm64-v8a/ 2>/dev/null
+          echo "=== MODDED LIBS ==="
+          ls -1 /tmp/mod_lib/lib/arm64-v8a/ 2>/dev/null
+
+      - name: 1. Basic comparison — file sizes
+        run: |
+          echo "=== SIZE COMPARISON ==="
+          cd /tmp/off_lib/lib/arm64-v8a
+          for f in *.so; do
+            OFF_SIZE=$(stat -c%s "$f" 2>/dev/null || echo 0)
+            MOD_FILE=$(find /tmp/mod_lib/lib/arm64-v8a -name "$f" 2>/dev/null | head -1)
+            if [ -f "$MOD_FILE" ]; then
+              MOD_SIZE=$(stat -c%s "$MOD_FILE" 2>/dev/null || echo 0)
+              DIFF=$((OFF_SIZE - MOD_SIZE))
+              DIFF_ABS=${DIFF#-}
+              if [ "$DIFF_ABS" -gt 100 ]; then
+                echo "DIFFERENT: $f (official=$OFF_SIZE, modded=$MOD_SIZE, delta=$DIFF)"
+              else
+                echo "SAME:      $f ($OFF_SIZE bytes)"
+              fi
+            else
+              echo "MODDED-ONLY: $f"
+            fi
+          done
+          echo ""
+          echo "=== LIBS ONLY IN MODDED ==="
+          cd /tmp/mod_lib/lib/arm64-v8a
+          for f in *.so; do
+            OFF_FILE=$(find /tmp/off_lib/lib/arm64-v8a -name "$f" 2>/dev/null | head -1)
+            if [ ! -f "$OFF_FILE" ]; then
+              echo "MODDED-ONLY: $f ($(stat -c%s "$f" 2>/dev/null) bytes)"
+            fi
+          done
+
+      - name: 2. Full binary diff — same-name .so files
+        run: |
+          echo "=== XXD COMPARISON OF DIFFERING .so ==="
+          cd /tmp/off_lib/lib/arm64-v8a
+          for f in *.so; do
+            MOD_FILE=$(find /tmp/mod_lib/lib/arm64-v8a -name "$f" 2>/dev/null | head -1)
+            [ -z "$MOD_FILE" ] && continue
+            OFF_SIZE=$(stat -c%s "$f")
+            MOD_SIZE=$(stat -c%s "$MOD_FILE")
+            DIFF=$((OFF_SIZE - MOD_SIZE))
+            DIFF_ABS=${DIFF#-}
+            [ "$DIFF_ABS" -le 100 ] && continue
+
+            echo "============================================"
+            echo "=== DIFF: $f (off=$OFF_SIZE mod=$MOD_SIZE) ==="
+            echo "============================================"
+            # Show the first 100 bytes where they differ
+            python3 -c "
+import sys
+d1 = open('$f','rb').read()
+d2 = open('$MOD_FILE','rb').read()
+maxlen = min(len(d1), len(d2))
+diffs = []
+for i in range(0, maxlen, 16):
+    b1 = d1[i:i+16]
+    b2 = d2[i:i+16]
+    if b1 != b2:
+        diffs.append(i)
+        if len(diffs) <= 20:
+            print(f'  Offset 0x{i:06x}:')
+            print(f'    OFF: {\" \".join(f\"{b:02x}\" for b in b1)}')
+            print(f'    MOD: {\" \".join(f\"{b:02x}\" for b in b2)}')
+            # Try to decode as ASCII
+            s1 = ''.join(chr(b) if 32 <= b <= 126 else '.' for b in b1)
+            s2 = ''.join(chr(b) if 32 <= b <= 126 else '.' for b in b2)
+            print(f'    ASCII OFF: {s1}')
+            print(f'    ASCII MOD: {s2}')
+            print()
+if len(diffs) > 20:
+    print(f'  ... and {len(diffs) - 20} more diff regions')
+print(f'  Total diff regions: {len(diffs)}')
+"
+          done
+
+      - name: 3. String diff — new/modified strings in .so
+        run: |
+          echo "=== STRING DIFF (MODDED-ONLY STRINGS) ==="
+          cd /tmp/off_lib/lib/arm64-v8a
+          for f in *.so; do
+            MOD_FILE=$(find /tmp/mod_lib/lib/arm64-v8a -name "$f" 2>/dev/null | head -1)
+            [ -z "$MOD_FILE" ] && continue
+            OFF_SIZE=$(stat -c%s "$f")
+            MOD_SIZE=$(stat -c%s "$MOD_FILE")
+            DIFF=$((OFF_SIZE - MOD_SIZE))
+            DIFF_ABS=${DIFF#-}
+            [ "$DIFF_ABS" -le 100 ] && continue
+
+            echo "=== STRINGS IN MODDED $f (not in official) ==="
+            python3 -c "
+import subprocess, sys
+# Extract readable strings >= 6 chars
+strings_off = set()
+strings_mod = set()
+for line in open('/proc/self/cmdline'): pass
+# Use strings command
+try:
+    off_out = subprocess.check_output(['strings', '-n', '6', '$f']).decode('latin-1').split('\n')
+    mod_out = subprocess.check_output(['strings', '-n', '6', '$MOD_FILE']).decode('latin-1').split('\n')
+    for s in off_out:
+        s = s.strip()
+        if s: strings_off.add(s)
+    for s in mod_out:
+        s = s.strip()
+        if s: strings_mod.add(s)
+except: pass
+# Find new strings
+new_strings = strings_mod - strings_off
+# Filter interesting ones
+interesting = [s for s in new_strings if any(k in s.lower() for k in ['signature','verify','certif','chec','bypass','fake','hack','modif','patch','hook','redirect','redirect'])]
+for s in sorted(interesting)[:20]:
+    print(f'  {s}')
+print(f'  Total new strings: {len(new_strings)}')
+print(f'  Interesting: {len(interesting)}')
+" 2>/dev/null || echo "  (string extraction failed)"
+          done
+
+      - name: 4. ELF section comparison
+        run: |
+          echo "=== ELF SECTION DIFF ==="
+          cd /tmp/off_lib/lib/arm64-v8a
+          for f in *.so; do
+            MOD_FILE=$(find /tmp/mod_lib/lib/arm64-v8a -name "$f" 2>/dev/null | head -1)
+            [ -z "$MOD_FILE" ] && continue
+            echo "--- $f ---"
+            python3 -c "
+try:
+    from elftools.elf.elffile import ELFFile
+    import io
+    with open('$f','rb') as f1, open('$MOD_FILE','rb') as f2:
+        e1 = ELFFile(f1)
+        e2 = ELFFile(f2)
+        s1 = {s.name: s for s in e1.iter_sections()}
+        s2 = {s.name: s for s in e2.iter_sections()}
+        all_sections = set(s1.keys()) | set(s2.keys())
+        for name in sorted(all_sections):
+            if name in s1 and name in s2:
+                if s1[name].data() != s2[name].data():
+                    print(f'  CHANGED: {name} ({len(s1[name].data())} vs {len(s2[name].data())} bytes)')
+            elif name in s1:
+                print(f'  REMOVED: {name} ({len(s1[name].data())} bytes)')
+            else:
+                print(f'  ADDED: {name} ({len(s2[name].data())} bytes)')
+except Exception as e:
+    print(f'  ELF parse error: {e}')
+" 2>/dev/null
+          done
+
+      - name: 5. DEX structure diff
+        run: |
+          echo "=== DEX FILE COMPARISON ==="
+          python3 -c "
+import zipfile, os
+off = zipfile.ZipFile('/tmp/official.apk')
+mod = zipfile.ZipFile('/tmp/modded.apk')
+off_dex = sorted([f for f in off.namelist() if f.endswith('.dex')])
+mod_dex = sorted([f for f in mod.namelist() if f.endswith('.dex')])
+print(f'Official DEX files: {len(off_dex)}')
+print(f'Modded DEX files: {len(mod_dex)}')
+for f in off_dex:
+    info = off.getinfo(f)
+    mod_info = None
+    if f in mod.namelist():
+        mod_info = mod.getinfo(f)
+        diff = info.file_size - mod_info.file_size
+        print(f'  {f}: off={info.file_size} mod={mod_info.file_size} delta={diff}' if diff != 0 else f'  {f}: SAME ({info.file_size})')
+    else:
+        print(f'  {f}: OFFICIAL-ONLY ({info.file_size})')
+for f in mod_dex:
+    if f not in off.namelist():
+        info = mod.getinfo(f)
+        print(f'  {f}: MODDED-ONLY ({info.file_size})')
+"
+          echo ""
+          echo "=== DEX CONTENT HASH COMPARISON ==="
+          python3 -c "
+import zipfile, hashlib
+off = zipfile.ZipFile('/tmp/official.apk')
+mod = zipfile.ZipFile('/tmp/modded.apk')
+for f in sorted(off.namelist() + mod.namelist()):
+    if not f.endswith('.dex'): continue
+    off_data = off.read(f) if f in off.namelist() else None
+    mod_data = mod.read(f) if f in mod.namelist() else None
+    off_hash = hashlib.sha256(off_data).hexdigest()[:16] if off_data else 'N/A'
+    mod_hash = hashlib.sha256(mod_data).hexdigest()[:16] if mod_data else 'N/A'
+    match = '✅' if off_hash == mod_hash else '❌'
+    if off_hash != mod_hash:
+        print(f'  {match} {f}')
+        print(f'       OFF: {off_hash} ({len(off_data) if off_data else 0} bytes)')
+        print(f'       MOD: {mod_hash} ({len(mod_data) if mod_data else 0} bytes)')
+"
