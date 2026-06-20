@@ -1,3 +1,4 @@
+d8 fix: OK
 name: Build FanqieNovelClean LSPatch APK
 on:
   workflow_dispatch: {}
@@ -226,9 +227,8 @@ MANIFEST
             -I "$ANDROID_JAR" --manifest /tmp/module/apk/AndroidManifest.xml --auto-add-overlay
 
           # Insert DEX
-          # zip done inline
-          cd /tmp/module cd /tmp/module && zip -q module-unsigned.apk classes.dex assets/xposed_init && cd /cd /tmp/module && zip -q module-unsigned.apk classes.dex assets/xposed_init && cd / zip -q module-unsigned.apk classes.dex
-          cd /tmp/module/apk cd /tmp/module && zip -q module-unsigned.apk classes.dex assets/xposed_init && cd /cd /tmp/module && zip -q module-unsigned.apk classes.dex assets/xposed_init && cd / zip -q /tmp/module/module-unsigned.apk assets/xposed_init
+          cd /tmp/module && zip -q module-unsigned.apk classes.dex
+          cd /tmp/module/apk && zip -q /tmp/module/module-unsigned.apk assets/xposed_init
           cd /
 
           # Sign module APK
@@ -274,3 +274,4 @@ MANIFEST
         with:
           retain_days: 0
           keep_minimum_runs: 5
+
