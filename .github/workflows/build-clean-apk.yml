@@ -9,7 +9,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
-          java-version: '17'
+          java-version: 17
           distribution: temurin
       - name: Download artifacts
         run: |
@@ -20,17 +20,17 @@ jobs:
             https://github.com/LSPosed/LSPatch/releases/download/v0.6/jar-v0.6-398-release.jar
         env:
           URL: 'https://cloud.dsdog.tk/d/google/temp/%E7%95%AA%E8%8C%84%E5%85%8D%E8%B4%B9%E5%B0%8F%E8%AF%B4_7.2.4.32.apk?sign=xUavME2Rt4Vf1FTbCppPq7sU8bRUFh29hrbIhdsXon4=:0'
-      - name: Sign module with apksigner (pre-installed)
+      - name: Sign module with v2 signature
         run: |
           SDK=/usr/local/lib/android/sdk
-          APK=$(find "$SDK/build-tools" -name apksigner -type f | head -1)
-          echo "Using: $APK"
-          keytool -genkey -v -keystore /tmp/ks -alias m -storepass a -keypass a \
+          AS=$(find "$SDK/build-tools" -name apksigner -type f | head -1)
+          keytool -genkey -v -keystore /tmp/ks -alias m \
+            -storepass android -keypass android \
             -keyalg RSA -keysize 2048 -validity 10000 \
             -dname "CN=M,O=M,C=CC" 2>&1
-          "$APK" sign --ks /tmp/ks --ks-pass pass:a --v2-signing-enabled true \
+          "$AS" sign --ks /tmp/ks --ks-pass pass:android \
+            --key-pass pass:android \
             --out /tmp/module-s.apk /tmp/module.apk 2>&1
-          echo "Signed module size: $(stat -c%s /tmp/module-s.apk)"
       - name: Patch with LSPatch
         run: |
           java -jar /tmp/lspatch.jar /tmp/official.apk \
