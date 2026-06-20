@@ -1,7 +1,6 @@
 name: Build LSPatch Fanqie APK
 on:
   workflow_dispatch: {}
-
 jobs:
   build:
     runs-on: ubuntu-22.04
@@ -12,31 +11,28 @@ jobs:
         with:
           java-version: '17'
           distribution: temurin
-      - name: Download hook module
-        run: >-
-          curl -sL -o /tmp/module.apk
-          https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie-hook-module-v2.apk
-      - name: Download official APK
+      - name: Download module + official + LSPatch
+        run: |
+          curl -sL -o /tmp/module.apk             https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie-hook-module-v2.apk
+          curl -sL --max-time 300 "$OFFICIAL_URL" -o /tmp/official.apk
+          curl -sL -o /tmp/lspatch.jar             https://github.com/LSPosed/LSPatch/releases/download/v0.6/jar-v0.6-398-release.jar
         env:
-          URL: 'https://cloud.dsdog.tk/d/google/temp/%E7%95%AA%E8%8C%84%E5%85%8D%E8%B4%B9%E5%B0%8F%E8%AF%B4_7.2.4.32.apk?sign=xUavME2Rt4Vf1FTbCppPq7sU8bRUFh29hrbIhdsXon4=:0'
-        run: curl -sL --max-time 300 "$URL" -o /tmp/official.apk
-      - name: Download LSPatch + sign
-        run: >-
-          curl -sL -o /tmp/lspatch.jar
-          https://github.com/LSPosed/LSPatch/releases/download/v0.6/jar-v0.6-398-release.jar
+          OFFICIAL_URL: 'https://cloud.dsdog.tk/d/google/temp/%%E7%%95%%AA%%E8%%8C%%84%%E5%%85%%8D%%E8%%B4%%B9%%E5%%B0%%8F%%E8%%AF%%B4_7.2.4.32.apk?sign=xUavME2Rt4Vf1FTbCppPq7sU8bRUFh29hrbIhdsXon4=:0'
+      - name: Sign module with apksigner (pre-installed on GHA)
+        run: |
+          SDK=/usr/local/lib/android/sdk
+          APK=$(find "$SDK/build-tools" -name apksigner -type f | head -1)
+          echo "Using apksigner: $APK"
+          keytool -genkey -v -keystore /tmp/ks -alias x -storepass x -keypass x \
+            -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=X,O=X,C=XX" >/dev/null 2>&1
+          "$APK" sign --ks /tmp/ks --ks-pass pass:x --out /tmp/module-s.apk /tmp/module.apk 2>&1
+          ls -lh /tmp/module-s.apk
       - name: Patch with LSPatch
         run: |
-          set +e
           java -jar /tmp/lspatch.jar /tmp/official.apk \
-            -m 0 --embed /tmp/module.apk \
-            -c -f -o /tmp/out 2>&1
-          java -jar /tmp/lspatch.jar /tmp/official.apk \
-            -m 0 -f -o /tmp/out2 2>&1
-          ls -la /tmp/out/ /tmp/out2/ 2>/dev/null
-          cp /tmp/out/*.apk /tmp/final.apk 2>/dev/null || \
-          cp /tmp/out2/*.apk /tmp/final.apk 2>/dev/null || \
-          echo "no output apk"
-          ls -lh /tmp/final.apk 2>/dev/null
+            -m 0 --embed /tmp/module-s.apk \
+            -f -o /tmp/out 2>&1
+          cp /tmp/out/*.apk /tmp/final.apk
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
