@@ -1,4 +1,3 @@
-d8 fix: OK
 name: Build FanqieNovelClean LSPatch APK
 on:
   workflow_dispatch: {}
@@ -13,33 +12,38 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: temurin
 
       - name: Setup Android SDK
         run: |
-          mkdir -p $HOME/android-sdk
-          cd /tmp
-          curl -sL -o cmdline-tools.zip \
+          SDK=$HOME/android-sdk
+          mkdir -p "$SDK" /tmp/cmd
+          cd /tmp/cmd
+          curl -sL -o tools.zip \
             https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
-          unzip -q cmdline-tools.zip
-          mkdir -p $HOME/android-sdk/cmdline-tools
-          mv cmdline-tools $HOME/android-sdk/cmdline-tools/latest
-          yes | $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager \
-            --sdk_root=$HOME/android-sdk \
-            "platforms;android-34" "build-tools;34.0.0" > /dev/null 2>&1
-          echo "ANDROID_HOME=$HOME/android-sdk" >> $GITHUB_ENV
-          echo "$HOME/android-sdk/build-tools/34.0.0" >> $GITHUB_PATH
+          unzip -q tools.zip
+          mkdir -p "$SDK/cmdline-tools"
+          mv cmdline-tools "$SDK/cmdline-tools/latest"
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" \
+            --sdk_root="$SDK" "platforms;android-34" "build-tools;34.0.0" > /dev/null 2>&1
+          rm -rf /tmp/cmd
+          echo "ANDROID_HOME=$SDK" >> $GITHUB_ENV
+          echo "$SDK/build-tools/34.0.0" >> $GITHUB_PATH
 
-      - name: Write hook module source
+      - name: Build hook module
         run: |
-          mkdir -p /tmp/module/java/com/callacat/fanqiehook
+          set -euo pipefail
+          AJ="$ANDROID_HOME/platforms/android-34/android.jar"
+          BT="$ANDROID_HOME/build-tools/34.0.0"
+          SRC=/tmp/module/src
+          OUT=/tmp/module/out
 
-          # MainHook.java
-          cat > /tmp/module/java/com/callacat/fanqiehook/MainHook.java << 'JAVA'
+          # Write MainHook.java
+          mkdir -p "$SRC/java/com/callacat/fanqiehook"
+          cat > "$SRC/java/com/callacat/fanqiehook/MainHook.java" << 'JAVA'
 package com.callacat.fanqiehook;
 
 import android.app.Activity;
@@ -56,9 +60,6 @@ public class MainHook implements IXposedHookLoadPackage {
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) {
         if (!lpparam.packageName.equals("com.dragon.read")) return;
-        XposedBridge.log("FanqieHook: active");
-
-        // 1. Bypass sign check
         hookCheckSign(lpparam, "com.dragon.read.rpc.model.NovelCommonParam");
         hookCheckSign(lpparam, "com.dragon.read.saas.ugc.model.NovelCommonParam");
         for (String c : new String[]{
@@ -68,37 +69,28 @@ public class MainHook implements IXposedHookLoadPackage {
         }) hookSignRes(lpparam, c);
         hookSignRes(lpparam, "com.dragon.read.rpc.model.HeaderArgs");
         hookField(lpparam, "com.dragon.read.rpc.model.HeaderArgs", "checkSignResV2", "1");
-
-        // 2. Block Pangle ad SDK
-        blockPangle(lpparam);
-
-        // 3. Block ad views at ViewGroup level
         XposedHelpers.findAndHookMethod(ViewGroup.class, "addView", View.class,
             new XC_MethodHook() {
                 @Override protected void beforeHookedMethod(MethodHookParam param) {
                     View v = (View) param.args[0];
                     if (v != null) {
                         String n = v.getClass().getName().toLowerCase();
-                        if (n.contains("adview") || n.contains("nativead") || n.contains("banner") || n.contains("ttad") || n.contains("gdt"))
+                        if (n.contains("adview") || n.contains("nativead") || n.contains("banner"))
                             param.setResult(null);
                     }
                 }
             });
-
-        // 4. Skip splash + ad activities
         XposedHelpers.findAndHookMethod(Activity.class, "onCreate", Bundle.class,
             new XC_MethodHook() {
                 @Override protected void afterHookedMethod(MethodHookParam param) {
                     Activity a = (Activity) param.thisObject;
                     String n = a.getClass().getName();
-                    if (n.contains("Splash") || n.contains("AdActivity") || n.contains("Advertisement"))
+                    if (n.contains("Splash") || n.contains("AdActivity"))
                         a.finish();
                 }
             });
-
-        XposedBridge.log("FanqieHook: all hooks installed");
+        XposedBridge.log("FanqieHook: active");
     }
-
     void hookCheckSign(XC_LoadPackage.LoadPackageParam p, String cls) {
         try {
             Class<?> c = p.classLoader.loadClass(cls);
@@ -110,7 +102,6 @@ public class MainHook implements IXposedHookLoadPackage {
             });
         } catch (Throwable t) { XposedBridge.log("FanqieHook: no " + cls); }
     }
-
     void hookSignRes(XC_LoadPackage.LoadPackageParam p, String cls) {
         try {
             Class<?> c = p.classLoader.loadClass(cls);
@@ -121,7 +112,6 @@ public class MainHook implements IXposedHookLoadPackage {
             });
         } catch (Throwable t) {}
     }
-
     void hookField(XC_LoadPackage.LoadPackageParam p, String cls, String f, Object v) {
         try {
             Class<?> c = p.classLoader.loadClass(cls);
@@ -132,85 +122,80 @@ public class MainHook implements IXposedHookLoadPackage {
             });
         } catch (Throwable t) {}
     }
-
-    void blockPangle(XC_LoadPackage.LoadPackageParam p) {
-        try {
-            Class<?> c = p.classLoader.loadClass("com.bytedance.sdk.openadsdk.TTAdSdk");
-            XposedHelpers.findAndHookMethod(c, "isInitSuccess", new XC_MethodHook() {
-                @Override protected void beforeHookedMethod(MethodHookParam param) { param.setResult(false); }
-            });
-            XposedBridge.log("FanqieHook: Pangle blocked");
-        } catch (Throwable t) { XposedBridge.log("FanqieHook: Pangle not found"); }
-    }
 }
 JAVA
 
-      - name: Build module APK
-        run: |
-          set -euo pipefail
-          ANDROID_JAR="$ANDROID_HOME/platforms/android-34/android.jar"
-          BT="$ANDROID_HOME/build-tools/34.0.0"
-
-          # Create Xposed API stubs (we only need compile-time stubs, not runtime)
-          mkdir -p /tmp/xposed-stubs
-          for pkg in de/robv/android/xposed de/robv/android/xposed/callbacks; do
-            mkdir -p "/tmp/xposed-stubs/$pkg"
-          done
-
-          # Minimal stubs
-          cat > /tmp/xposed-stubs/de/robv/android/xposed/IXposedMod.java << 'STUB'
+          # Create Xposed API stubs
+          mkdir -p /tmp/stubs/de/robv/android/xposed /tmp/stubs/de/robv/android/xposed/callbacks
+          cat > /tmp/stubs/de/robv/android/xposed/IXposedMod.java << 'S'
 package de.robv.android.xposed; public interface IXposedMod {}
-STUB
-          cat > /tmp/xposed-stubs/de/robv/android/xposed/callbacks/XCallback.java << 'STUB'
+S
+          cat > /tmp/stubs/de/robv/android/xposed/callbacks/XCallback.java << 'S'
 package de.robv.android.xposed.callbacks; public class XCallback {}
-STUB
-          cat > /tmp/xposed-stubs/de/robv/android/xposed/callbacks/XC_LoadPackage.java << 'STUB'
-package de.robv.android.xposed.callbacks; public class XC_LoadPackage extends XCallback {
+S
+          cat > /tmp/stubs/de/robv/android/xposed/callbacks/XC_LoadPackage.java << 'S'
+package de.robv.android.xposed.callbacks;
+import de.robv.android.xposed.IXposedMod;
+public class XC_LoadPackage extends XCallback {
   public static class LoadPackageParam { public String packageName; public ClassLoader classLoader; }
 }
-STUB
-          cat > /tmp/xposed-stubs/de/robv/android/xposed/XposedBridge.java << 'STUB'
+S
+          cat > /tmp/stubs/de/robv/android/xposed/XposedBridge.java << 'S'
 package de.robv.android.xposed; public class XposedBridge { public static void log(String s) {} }
-STUB
-          cat > /tmp/xposed-stubs/de/robv/android/xposed/XC_MethodHook.java << 'STUB'
-package de.robv.android.xposed; public class XC_MethodHook {
+S
+          cat > /tmp/stubs/de/robv/android/xposed/XC_MethodHook.java << 'S'
+package de.robv.android.xposed;
+public class XC_MethodHook {
   public static class MethodHookParam { public Object thisObject; public Object[] args; public Object result; public void setResult(Object r) { this.result = r; } }
+  public static class Unhook {}
   protected void beforeHookedMethod(MethodHookParam param) throws Throwable {}
   protected void afterHookedMethod(MethodHookParam param) throws Throwable {}
-  public static class Unhook {}
 }
-STUB
-          cat > /tmp/xposed-stubs/de/robv/android/xposed/IXposedHookLoadPackage.java << 'STUB'
-package de.robv.android.xposed; import de.robv.android.xposed.callbacks.XC_LoadPackage;
-public interface IXposedHookLoadPackage extends IXposedMod { void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) throws Throwable; }
-STUB
-          cat > /tmp/xposed-stubs/de/robv/android/xposed/XposedHelpers.java << 'STUB'
-package de.robv.android.xposed; import java.lang.reflect.*;
+S
+          cat > /tmp/stubs/de/robv/android/xposed/IXposedHookLoadPackage.java << 'S'
+package de.robv.android.xposed;
+import de.robv.android.xposed.callbacks.XC_LoadPackage;
+public interface IXposedHookLoadPackage extends IXposedMod {
+  void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) throws Throwable;
+}
+S
+          cat > /tmp/stubs/de/robv/android/xposed/XposedHelpers.java << 'S'
+package de.robv.android.xposed;
+import java.lang.reflect.*;
 public class XposedHelpers {
   public static Class<?> findClass(String c, ClassLoader cl) throws ClassNotFoundException { return Class.forName(c,false,cl); }
-  public static void setObjectField(Object o, String f, Object v) { try { findField(o.getClass(),f).set(o,v); } catch(Exception e) { throw new RuntimeException(e); } }
-  public static Field findField(Class<?> c, String f) { for(Class<?> x=c;x!=null;x=x.getSuperclass()){ try{Field r=x.getDeclaredField(f);r.setAccessible(true);return r;}catch(NoSuchFieldException e){}} throw new RuntimeException(new NoSuchFieldException(f+" in "+c)); }
+  public static void setObjectField(Object o, String f, Object v) { try{findField(o.getClass(),f).set(o,v);}catch(Exception e){throw new RuntimeException(e);} }
+  public static Field findField(Class<?> c, String f) { for(Class<?> x=c;x!=null;x=x.getSuperclass()){try{Field r=x.getDeclaredField(f);r.setAccessible(true);return r;}catch(NoSuchFieldException e){}} throw new RuntimeException(new NoSuchFieldException(f+" in "+c)); }
   public static XC_MethodHook.Unhook findAndHookMethod(Class<?> c, String m, Object... a) { return null; }
   public static XC_MethodHook.Unhook findAndHookConstructor(Class<?> c, Object... a) { return null; }
 }
-STUB
+S
 
-          # Compile stubs
-          javac -d /tmp/xposed-stubs-out /tmp/xposed-stubs/de/robv/android/xposed/*.java /tmp/xposed-stubs/de/robv/android/xposed/callbacks/*.java
+          # Compile stubs → jar
+          javac -d /tmp/stubs/out /tmp/stubs/de/robv/android/xposed/*.java /tmp/stubs/de/robv/android/xposed/callbacks/*.java
+          cd /tmp/stubs/out && jar cf /tmp/stubs.jar . && cd /
 
-          # Compile module
-          mkdir -p /tmp/module/classes
-          javac -d /tmp/module/classes -source 8 -target 8 \
-            -cp "$ANDROID_JAR:/tmp/xposed-stubs-out" \
-            /tmp/module/java/com/callacat/fanqiehook/MainHook.java
+          # Compile module .class
+          mkdir -p "$OUT/classes"
+          javac -d "$OUT/classes" -source 8 -target 8 \
+            -cp "$AJ:/tmp/stubs.jar" \
+            "$SRC/java/com/callacat/fanqiehook/MainHook.java"
+          echo "javac: OK"
 
-          # Convert to DEX
-          mkdir -p /tmp/module/dex
-          "$BT/d8" --lib "$ANDROID_JAR" --min-api 26 --output /tmp/module/dex --classpath /tmp/xposed-stubs-out /tmp/module/classes
+          # Convert to DEX — use --lib for both android.jar and stubs
+          mkdir -p "$OUT/dex"
+          "$BT/d8" \
+            --lib "$AJ" \
+            --lib /tmp/stubs.jar \
+            --min-api 26 \
+            --output "$OUT/dex" \
+            "$OUT/classes"
+          echo "d8: OK ($(ls $OUT/dex/))"
 
-          # Create APK
-          mkdir -p /tmp/module/apk
-          cat > /tmp/module/apk/AndroidManifest.xml << 'MANIFEST'
+          # Package module APK
+          mkdir -p "$OUT/apk/assets"
+          echo "com.callacat.fanqiehook.MainHook" > "$OUT/apk/assets/xposed_init"
+          cat > "$OUT/apk/AndroidManifest.xml" << 'M'
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.callacat.fanqiehook">
     <application android:label="FanqieClean">
@@ -219,48 +204,35 @@ STUB
         <meta-data android:name="xposedminversion" android:value="53" />
     </application>
 </manifest>
-MANIFEST
-          mkdir -p /tmp/module/apk/assets
-          echo "com.callacat.fanqiehook.MainHook" > /tmp/module/apk/assets/xposed_init
+M
 
-          "$BT/aapt2" link -o /tmp/module/module-unsigned.apk \
-            -I "$ANDROID_JAR" --manifest /tmp/module/apk/AndroidManifest.xml --auto-add-overlay
+          "$BT/aapt2" link -o "$OUT/module-unsigned.apk" \
+            -I "$AJ" --manifest "$OUT/apk/AndroidManifest.xml" --auto-add-overlay
 
-          # Insert DEX
-          cd /tmp/module && zip -q module-unsigned.apk classes.dex
-          cd /tmp/module/apk && zip -q /tmp/module/module-unsigned.apk assets/xposed_init
+          # Insert DEX + assets
+          cd "$OUT/dex" && zip -q "$OUT/module-unsigned.apk" classes.dex
+          cd "$OUT/apk" && zip -q "$OUT/module-unsigned.apk" assets/xposed_init
           cd /
 
-          # Sign module APK
+          # Sign module
           keytool -genkey -v -keystore /tmp/module.keystore -alias m \
             -storepass a -keypass a -keyalg RSA -keysize 2048 -validity 10000 \
             -dname "CN=M,O=M,C=C" 2>&1
           "$BT/apksigner" sign --ks /tmp/module.keystore --ks-pass pass:a \
-            --out /tmp/module/module.apk /tmp/module/module-unsigned.apk
+            --out /tmp/module.apk "$OUT/module-unsigned.apk"
+          echo "Module APK: $(stat -c%s /tmp/module.apk) bytes"
 
-          echo "Module APK size: $(stat -c%s /tmp/module/module.apk)"
-
-      - name: Download official APK
-        run: curl -sL "$OFFICIAL_URL" -o /tmp/official.apk -w "size: %{size_download}B\n"
-
-      - name: Download LSPatch
-        run: curl -sL -o /tmp/lspatch.jar \
-          "https://github.com/LSPosed/LSPatch/releases/download/v0.6/jar-v0.6-398-release.jar"
+      - name: Download official APK + LSPatch
+        run: |
+          curl -sL "$OFFICIAL_URL" -o /tmp/official.apk -w "Official: %{size_download}B\n"
+          curl -sL -o /tmp/lspatch.jar \
+            "https://github.com/LSPosed/LSPatch/releases/download/v0.6/jar-v0.6-398-release.jar"
 
       - name: Patch with LSPatch
         run: |
           java -jar /tmp/lspatch.jar /tmp/official.apk \
-            -m 0 \
-            --embed /tmp/module/module.apk \
-            -c -f \
+            -m 0 --embed /tmp/module.apk -c -f \
             -o /tmp/final.apk 2>&1
-
-      - name: Verify final APK
-        run: |
-          ls -lh /tmp/final.apk
-          echo "APK ready!"
-          unzip -l /tmp/final.apk 'assets/*' | grep -i lsposed || echo "No lsposed assets in apk"
-          unzip -l /tmp/final.apk 'META-INF/*' | head -20
 
       - name: Upload
         uses: actions/upload-artifact@v4
@@ -270,8 +242,8 @@ MANIFEST
           retention-days: 30
 
       - name: Clean old runs
+        if: always()
         uses: Mattraks/delete-workflow-runs@v2
         with:
           retain_days: 0
           keep_minimum_runs: 5
-
