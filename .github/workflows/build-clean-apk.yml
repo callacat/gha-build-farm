@@ -1,53 +1,32 @@
 name: Build LSPatch Fanqie APK
-on:
-  workflow_dispatch: {}
-env:
-  OFFICIAL_URL: >-
-    https://cloud.dsdog.tk/d/google/temp/%E7%95%AA%E8%8C%84%E5%85%8D%E8%B4%B9%E5%B0%8F%E8%AF%B4_7.2.4.32.apk?sign=xUavME2Rt4Vf1FTbCppPq7sU8bRUFh29hrbIhdsXon4=:0
+on: workflow_dispatch: {}
+
 jobs:
   build:
     runs-on: ubuntu-22.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: temurin
-      - name: Setup Android SDK
-        run: |
-          mkdir -p /tmp/android/cmd && cd /tmp/android/cmd
-          curl -sL -o t.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
-          unzip -q t.zip && mkdir -p /tmp/android/sdk/cmdline-tools
-          mv cmdline-tools /tmp/android/sdk/cmdline-tools/latest
-          yes | /tmp/android/sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=/tmp/android/sdk platforms\;android-34 build-tools\;34.0.0 > /dev/null 2>&1
-          echo BT=/tmp/android/sdk/build-tools/34.0.0 >> /tmp/env.sh
-          echo AJ=/tmp/android/sdk/platforms/android-34/android.jar >> /tmp/env.sh
-
-      - name: Download official + LSPatch
-        run: |
-          curl -sL "" -o /tmp/official.apk
-          curl -sL -o /tmp/lspatch.jar https://github.com/LSPosed/LSPatch/releases/download/v0.6/jar-v0.6-398-release.jar
-
-      - name: Download hook module
-        run: |
-          curl -sL -o /tmp/module.apk https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie-hook-module-v1.apk || echo "module not uploaded yet"
-          ls -la /tmp/module.apk
-
+      - name: Build hook module
+        run: bash .github/scripts/build-module.sh
+      - name: Download official APK
+        env:
+          URL: >-
+            https://cloud.dsdog.tk/d/google/temp/%E7%95%AA%E8%8C%84%E5%85%8D%E8%B4%B9%E5%B0%8F%E8%AF%B4_7.2.4.32.apk?sign=xUavME2Rt4Vf1FTbCppPq7sU8bRUFh29hrbIhdsXon4=:0
+        run: curl -sL "$URL" -o /tmp/official.apk
+      - name: Download LSPatch
+        run: >-
+          curl -sL -o /tmp/lspatch.jar
+          https://github.com/LSPosed/LSPatch/releases/download/v0.6/jar-v0.6-398-release.jar
       - name: Patch with LSPatch
-        run: |
-          java -jar /tmp/lspatch.jar /tmp/official.apk -m 0 --embed /tmp/module.apk -c -f -o /tmp/final.apk 2>&1
-
-      - name: Upload
+        run: java -jar /tmp/lspatch.jar /tmp/official.apk -m 0 --embed /tmp/module.apk -c -f -o /tmp/final.apk
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: fanqie-lspatch-patched
+          name: fanqie-clean
           path: /tmp/final.apk
           retention-days: 30
-
-      - name: Clean old runs
-        if: always()
-        uses: Mattraks/delete-workflow-runs@v2
-        with:
-          retain_days: 0
-          keep_minimum_runs: 5
