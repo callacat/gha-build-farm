@@ -1,0 +1,12 @@
+version: 3.0.2
+apkFileName: module.apk
+isFrameworkApk: false
+sdkInfo:
+  minSdkVersion: '26'
+  targetSdkVersion: '34'
+usesFramework:
+  ids:
+  - 1
+versionInfo:
+  versionCode: 1
+  versionName: '1.0'
