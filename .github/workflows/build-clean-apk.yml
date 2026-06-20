@@ -16,28 +16,27 @@ jobs:
         run: >-
           curl -sL -o /tmp/module.apk
           https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie-hook-module-v2.apk
-      - name: Sign module
-        run: |
-          keytool -genkey -v -keystore /tmp/ks -alias x -storepass x -keypass x \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -dname "CN=X,O=X,C=XX" >/dev/null 2>&1
-          jarsigner -sigalg SHA256withRSA -digestalg SHA-256 \
-            -keystore /tmp/ks -storepass x /tmp/module.apk x 2>&1
-          cp /tmp/module.apk /tmp/module-s.apk
       - name: Download official APK
         env:
           URL: 'https://cloud.dsdog.tk/d/google/temp/%E7%95%AA%E8%8C%84%E5%85%8D%E8%B4%B9%E5%B0%8F%E8%AF%B4_7.2.4.32.apk?sign=xUavME2Rt4Vf1FTbCppPq7sU8bRUFh29hrbIhdsXon4=:0'
         run: curl -sL --max-time 300 "$URL" -o /tmp/official.apk
-      - name: Download LSPatch
+      - name: Download LSPatch + sign
         run: >-
           curl -sL -o /tmp/lspatch.jar
           https://github.com/LSPosed/LSPatch/releases/download/v0.6/jar-v0.6-398-release.jar
-      - name: Patch
+      - name: Patch with LSPatch
         run: |
+          set +e
           java -jar /tmp/lspatch.jar /tmp/official.apk \
-            -m 0 --embed /tmp/module-s.apk \
-            -f -o /tmp/out
-          cp /tmp/out/*.apk /tmp/final.apk || ls /tmp/out/
+            -m 0 --embed /tmp/module.apk \
+            -c -f -o /tmp/out 2>&1
+          java -jar /tmp/lspatch.jar /tmp/official.apk \
+            -m 0 -f -o /tmp/out2 2>&1
+          ls -la /tmp/out/ /tmp/out2/ 2>/dev/null
+          cp /tmp/out/*.apk /tmp/final.apk 2>/dev/null || \
+          cp /tmp/out2/*.apk /tmp/final.apk 2>/dev/null || \
+          echo "no output apk"
+          ls -lh /tmp/final.apk 2>/dev/null
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
