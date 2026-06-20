@@ -1,0 +1,46 @@
+name: Resign Modded APK Directly
+on:
+  workflow_dispatch: {}
+
+env:
+  MODDED_URL: https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie_novel_7.2.4.19.apk
+
+jobs:
+  resign:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - name: Download modded APK
+        run: curl -sL "$MODDED_URL" -o modded.apk -w "size: %{size_download}B\n"
+
+      - name: Strip & re-sign
+        run: |
+          # Remove old signature, keep everything else intact
+          mkdir apk
+          cd apk
+          unzip -q ../modded.apk
+          rm -rf META-INF/
+          # Re-zip with proper alignment (zipalign not available, jarsigner handles v1)
+          zip -r -q ../unsigned.apk .
+          cd ..
+          ls -lh unsigned.apk
+
+      - name: Sign
+        run: |
+          keytool -genkey -v -keystore debug.keystore -alias debug \
+            -storepass android -keypass android -keyalg RSA -keysize 2048 \
+            -validity 10000 -dname "CN=Clean,O=Clean,C=CN" 2>&1
+          jarsigner -sigalg SHA256withRSA -digestalg SHA-256 \
+            -keystore debug.keystore -storepass android \
+            unsigned.apk debug 2>&1 | tail -3
+          jarsigner -verify -keystore debug.keystore unsigned.apk 2>&1 | tail -2
+          cp unsigned.apk resigned-modded.apk
+          ls -lh resigned-modded.apk
+          echo "SIGNED OK"
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: resigned-modded
+          path: resigned-modded.apk
+          retention-days: 30
