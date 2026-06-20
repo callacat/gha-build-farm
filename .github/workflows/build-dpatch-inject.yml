@@ -205,7 +205,7 @@ STUB
 
           # Convert to DEX
           mkdir -p /tmp/module/dex
-          "$BT/d8" --lib "$ANDROID_JAR" --min-api 26 --output /tmp/module/dex /tmp/module/classes
+          "$BT/d8" --lib "$ANDROID_JAR" --min-api 26 --output /tmp/module/dex --classpath /tmp/xposed-stubs-out /tmp/module/classes
 
           # Create APK
           mkdir -p /tmp/module/apk
@@ -226,8 +226,10 @@ MANIFEST
             -I "$ANDROID_JAR" --manifest /tmp/module/apk/AndroidManifest.xml --auto-add-overlay
 
           # Insert DEX
-          cp /tmp/module/dex/classes.dex /tmp/module/classes.dex
-          cd /tmp/module && zip -q module-unsigned.apk classes.dex assets/xposed_init && cd /
+          # zip done inline
+          cd /tmp/module cd /tmp/module && zip -q module-unsigned.apk classes.dex assets/xposed_init && cd /cd /tmp/module && zip -q module-unsigned.apk classes.dex assets/xposed_init && cd / zip -q module-unsigned.apk classes.dex
+          cd /tmp/module/apk cd /tmp/module && zip -q module-unsigned.apk classes.dex assets/xposed_init && cd /cd /tmp/module && zip -q module-unsigned.apk classes.dex assets/xposed_init && cd / zip -q /tmp/module/module-unsigned.apk assets/xposed_init
+          cd /
 
           # Sign module APK
           keytool -genkey -v -keystore /tmp/module.keystore -alias m \
