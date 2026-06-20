@@ -1,66 +1,30 @@
-name: checklibs
+name: Check Native Libs & DEX Diff
 on:
   workflow_dispatch: {}
+
 env:
-  OA: https://cloud.dsdog.tk/d/google/temp/%E7%95%AA%E8%8C%84%E5%85%8D%E8%B4%B9%E5%B0%8F%E8%AF%B4_7.2.4.32.apk?sign=xUavME2Rt4Vf1FTbCppPq7sU8bRUFh29hrbIhdsXon4=:0
-  MB: https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie_novel_7.2.4.19.apk
+  OFFICIAL_URL: https://cloud.dsdog.tk/d/google/temp/%E7%95%AA%E8%8C%84%E5%85%8D%E8%B4%B9%E5%B0%8F%E8%AF%B4_7.2.4.32.apk?sign=xUavME2Rt4Vf1FTbCppPq7sU8bRUFh29hrbIhdsXon4=:0
+  MODDED_URL: https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie_novel_7.2.4.19.apk
+
 jobs:
-  run:
+  diff:
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:
-      - run: curl -sL "$OA" -o /tmp/o.apk -w "O:%{http_code}\n"
-      - run: curl -sL "$MB" -o /tmp/m.apk -w "M:%{http_code}\n"
+      - uses: actions/checkout@v4
 
-      - run: |
-          unzip -l /tmp/o.apk 'lib/arm64-v8a/*.so' | awk '/\.so/{print$4,$1}' | sort > /tmp/a.txt
-          unzip -l /tmp/m.apk 'lib/arm64-v8a/*.so' | awk '/\.so/{print$4,$1}' | sort > /tmp/b.txt
-          echo === SIZE ===; join /tmp/a.txt /tmp/b.txt | awk '{d=$2-$3;d=d<0?-d:d}d>100{print$1": off="$2" mod="$3}'
-          echo === MODONLY ===; join -v2 /tmp/a.txt /tmp/b.txt | awk '{print$1}'
+      - run: curl -sL "$OFFICIAL_URL" -o official.apk -w "O: HTTP %{http_code}, %{size_download}B\n"
+      - run: curl -sL "$MODDED_URL" -o modded.apk -w "M: HTTP %{http_code}, %{size_download}B\n"
 
-      - run: |
-          mkdir -p /tmp/ol /tmp/ml
-          unzip -q /tmp/o.apk 'lib/arm64-v8a/*.so' -d /tmp/ol
-          unzip -q /tmp/m.apk 'lib/arm64-v8a/*.so' -d /tmp/ml
-          cd /tmp/ol/lib/arm64-v8a
-          for so in *.so; do
-            mf="/tmp/ml/lib/arm64-v8a/$so"; [ ! -f "$mf" ] && continue
-            s1=$(stat -c%s "$so"); s2=$(stat -c%s "$mf"); d=$((s1-s2)); d=${d#-}
-            [ "$d" -le 100 ] && continue
-            cat > /tmp/hd.py << 'PYEOF'
-import os,sys
-so=os.environ['FN']
-d1=open('/tmp/ol/lib/arm64-v8a/'+so,'rb').read()
-d2=open(os.environ['FP'],'rb').read()
-r=0
-for i in range(0,min(len(d1),len(d2)),16):
-    if d1[i:i+16]!=d2[i:i+16]:
-        if r<8:
-            a=' '.join('%02x'%b for b in d1[i:i+16]); b=' '.join('%02x'%b for b in d2[i:i+16])
-            sa=''.join(chr(b) if 32<=b<=126 else '.' for b in d1[i:i+16])
-            sb=''.join(chr(b) if 32<=b<=126 else '.' for b in d2[i:i+16])
-            print('@%05x'%i);print('O:'+a+' '+sa);print('M:'+b+' '+sb)
-        r+=1
-print(so+': '+str(r))
-PYEOF
-            export FN="$so" FP="$mf"
-            python3 /tmp/hd.py
-          done
+      - name: Native lib comparison
+        run: python3 .github/scripts/native-lib-diff.py
 
-      - run: |
-          cat > /tmp/dexdiff.py << 'PYEOF'
-import zipfile,hashlib
-o=zipfile.ZipFile('/tmp/o.apk'); m=zipfile.ZipFile('/tmp/m.apk')
-for f in sorted(set(o.namelist())|set(m.namelist())):
-    if not f.endswith('.dex'): continue
-    od=o.read(f) if f in o.namelist() else None; md=m.read(f) if f in m.namelist() else None
-    if od and md and hashlib.sha256(od).hexdigest()!=hashlib.sha256(md).hexdigest(): print('DEX:'+f)
-    elif od and not md: print('OFFDEX:'+f)
-    elif md and not od: print('MODDEX:'+f)
-PYEOF
-          python3 /tmp/dexdiff.py
+      - name: DEX hash comparison
+        run: python3 .github/scripts/dex-hash-diff.py
 
-      - uses: Mattraks/delete-workflow-runs@v2
+      - name: Clean old runs
+        if: always()
+        uses: Mattraks/delete-workflow-runs@v2
         with:
           retain_days: 0
           keep_minimum_runs: 5
