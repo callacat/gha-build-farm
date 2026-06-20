@@ -11,27 +11,19 @@ jobs:
         with:
           java-version: '17'
           distribution: temurin
-      - name: Download module + official + LSPatch
+      - name: Download artifacts
         run: |
-          curl -sL -o /tmp/module.apk             https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie-hook-module-v2.apk
-          curl -sL --max-time 300 "$OFFICIAL_URL" -o /tmp/official.apk
-          curl -sL -o /tmp/lspatch.jar             https://github.com/LSPosed/LSPatch/releases/download/v0.6/jar-v0.6-398-release.jar
+          curl -sL -o /tmp/module.apk \
+            https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie-hook-module-v2.apk
+          curl -sL --max-time 300 "$URL" -o /tmp/official.apk
+          curl -sL -o /tmp/lspatch.jar \
+            https://github.com/LSPosed/LSPatch/releases/download/v0.6/jar-v0.6-398-release.jar
         env:
-          OFFICIAL_URL: 'https://cloud.dsdog.tk/d/google/temp/%%E7%%95%%AA%%E8%%8C%%84%%E5%%85%%8D%%E8%%B4%%B9%%E5%%B0%%8F%%E8%%AF%%B4_7.2.4.32.apk?sign=xUavME2Rt4Vf1FTbCppPq7sU8bRUFh29hrbIhdsXon4=:0'
-      - name: Sign module with apksigner (pre-installed on GHA)
-        run: |
-          SDK=/usr/local/lib/android/sdk
-          APK=$(find "$SDK/build-tools" -name apksigner -type f | head -1)
-          echo "Using apksigner: $APK"
-          keytool -genkey -v -keystore /tmp/ks -alias x -storepass x -keypass x \
-            -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=X,O=X,C=XX" >/dev/null 2>&1
-          "$APK" sign --ks /tmp/ks --ks-pass pass:x --out /tmp/module-s.apk /tmp/module.apk 2>&1
-          ls -lh /tmp/module-s.apk
+          URL: 'https://cloud.dsdog.tk/d/google/temp/%E7%95%AA%E8%8C%84%E5%85%8D%E8%B4%B9%E5%B0%8F%E8%AF%B4_7.2.4.32.apk?sign=xUavME2Rt4Vf1FTbCppPq7sU8bRUFh29hrbIhdsXon4=:0'
       - name: Patch with LSPatch
         run: |
-          java -jar /tmp/lspatch.jar /tmp/official.apk \
-            -m 0 --embed /tmp/module-s.apk \
-            -f -o /tmp/out 2>&1
+          java -jar /tmp/lspatch.jar -m 0 --embed /tmp/module.apk -o /tmp/out /tmp/official.apk
+          ls -la /tmp/out/
           cp /tmp/out/*.apk /tmp/final.apk
       - name: Upload
         uses: actions/upload-artifact@v4
