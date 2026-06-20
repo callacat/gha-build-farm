@@ -16,7 +16,11 @@ jobs:
         env:
           URL: >-
             https://cloud.dsdog.tk/d/google/temp/%%E7%%95%%AA%%E8%%8C%%84%%E5%%85%%8D%%E8%%B4%%B9%%E5%%B0%%8F%%E8%%AF%%B4_7.2.4.32.apk?sign=xUavME2Rt4Vf1FTbCppPq7sU8bRUFh29hrbIhdsXon4=:0
-        run: curl -sL "$URL" -o /tmp/official.apk
+        run: |
+          curl -sLo /tmp/official.apk "$URL" -w "%%{http_code}"
+          echo ""
+          ls -lh /tmp/official.apk
+          file /tmp/official.apk
       - name: Download hook module
         run: >-
           curl -sL -o /tmp/module.apk
@@ -26,10 +30,10 @@ jobs:
           curl -sL -o /tmp/lspatch.jar
           https://github.com/LSPosed/LSPatch/releases/download/v0.6/jar-v0.6-398-release.jar
       - name: Patch with LSPatch
-        run: >-
-          java -jar /tmp/lspatch.jar /tmp/official.apk
-          -m 0 --embed /tmp/module.apk -c -f
-          -o /tmp/final.apk
+        run: |
+          java -jar /tmp/lspatch.jar /tmp/official.apk -m 0 --embed /tmp/module.apk -c -f -o /tmp
+          ls -lh /tmp/official-*-lspatched.apk
+          cp /tmp/official-*-lspatched.apk /tmp/final.apk
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
