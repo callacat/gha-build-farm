@@ -22,12 +22,13 @@ jobs:
             https://repo1.maven.org/maven2/org/bouncycastle/bcprov-jdk18on/1.78.1/bcprov-jdk18on-1.78.1.jar
         env:
           URL: 'https://cloud.dsdog.tk/d/google/temp/%E7%95%AA%E8%8C%84%E5%85%8D%E8%B4%B9%E5%B0%8F%E8%AF%B4_7.2.4.32.apk?sign=xUavME2Rt4Vf1FTbCppPq7sU8bRUFh29hrbIhdsXon4=:0'
-      - name: Patch with NPatch (BC on classpath)
+      - name: Patch with NPatch
         run: |
+          printf 'security.provider.9=org.bouncycastle.jce.provider.BouncyCastleProvider\n' > /tmp/java.security
           java -cp /tmp/bcprov.jar:/tmp/npatch.jar \
-            -Djava.security.properties=/dev/stdin \
+            -Djava.security.properties=/tmp/java.security \
             top.nkbe.npatch.patch.NPatch /tmp/official.apk \
-            --embed /tmp/module.apk -f -o /tmp/out 2>&1 <<< $(printf 'security.provider.9=org.bouncycastle.jce.provider.BouncyCastleProvider\n')
+            --embed /tmp/module.apk -f -o /tmp/out
           cp /tmp/out/*.apk /tmp/final.apk
       - name: Upload
         uses: actions/upload-artifact@v4
