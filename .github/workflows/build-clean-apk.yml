@@ -1,64 +1,50 @@
-name: Build Overlay Fanqie APK
+name: NPatch Fanqie APK
 on:
   workflow_dispatch: {}
 jobs:
   build:
     runs-on: ubuntu-22.04
-    timeout-minutes: 60
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-
-      - name: Download APKs
-        run: |
-          RELEASE_URL="https://github.com/callacat/gha-build-farm/releases/download/apk-assets"
-          curl -sL -o official.apk "$RELEASE_URL/fanqie_novel_official_7.2.4.32.apk"
-          curl -sL -o modded.apk "$RELEASE_URL/fanqie_novel_7.2.4.19.apk"
-
       - uses: actions/setup-java@v4
         with:
+          java-version: "21"
           distribution: temurin
-          java-version: "17"
 
-      - name: Install apktool 3.0.2
+      - name: Download official APK
+        run: curl -sL --max-time 300 "$URL" -o /tmp/official.apk
+        env:
+          URL: https://cloud.dsdog.tk/d/google/temp/%E7%95%AA%E8%8C%84%E5%85%8D%E8%B4%B9%E5%B0%8F%E8%AF%B4_7.2.4.32.apk?sign=xUavME2Rt4Vf1FTbCppPq7sU8bRUFh29hrbIhdsXon4=:0
+
+      - name: Download tools
         run: |
-          curl -sL -o apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar
+          curl -sL -o /tmp/apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar
+          curl -sL -o /tmp/module.apk https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie-hook-module-dpatch.apk
+          curl -sL -o /tmp/npatch.jar https://github.com/7723mod/NPatch/releases/download/v1.0.5/jar-v1.0.5-639-release.jar
+          curl -sL -o /tmp/bcprov.jar https://repo1.maven.org/maven2/org/bouncycastle/bcprov-jdk18on/1.78.1/bcprov-jdk18on-1.78.1.jar
 
-      - name: Decompile official
-        run: java -jar apktool.jar d -f official.apk -o official_smali
-
-      - name: Decompile modded
-        run: java -jar apktool.jar d -f modded.apk -o modded_smali
-
-      - name: Overlay
+      - name: Patch manifest - set appComponentFactory
         run: |
-          python3 << 'PYEOF'
-import os, shutil
-mod, off = 'modded_smali', 'official_smali'
-for item in sorted(os.listdir(mod)):
-    src, dst = os.path.join(mod, item), os.path.join(off, item)
-    if item == 'original' or not os.path.isdir(src):
-        continue
-    if item.startswith('smali'):
-        print(f'Overlay {item}...')
-        if os.path.exists(dst):
-            shutil.rmtree(dst)
-        shutil.copytree(src, dst)
-shutil.copy2(os.path.join(mod, 'AndroidManifest.xml'), os.path.join(off, 'AndroidManifest.xml'))
-print('DONE')
-PYEOF
+          java -jar /tmp/apktool.jar d -f /tmp/official.apk -o /tmp/apk_out
+          # Change appComponentFactory to DPatch's
+          sed -i 's|android:appComponentFactory="androidx.core.app.CoreComponentFactory"|android:appComponentFactory="com.pandora.core.AppFactory"|' /tmp/apk_out/AndroidManifest.xml
+          grep appComponentFactory /tmp/apk_out/AndroidManifest.xml
+          java -jar /tmp/apktool.jar b /tmp/apk_out -o /tmp/modified.apk
 
-      - name: Rebuild
-        run: java -jar apktool.jar b official_smali -o unsigned.apk
-
-      - name: Sign
+      - name: Embed DPatch module with NPatch
         run: |
-          keytool -genkey -v -keystore debug.keystore -alias androiddebugkey             -storepass android -keypass android -keyalg RSA -keysize 2048             -validity 10000 -dname "CN=Debug, OU=Unknown, O=Unknown, L=Unknown, ST=Unknown, C=US"
-          apksigner sign --ks debug.keystore --ks-pass pass:android             --ks-key-alias androiddebugkey --out patched.apk unsigned.apk
-          ls -lh patched.apk
+          printf 'security.provider.9=org.bouncycastle.jce.provider.BouncyCastleProvider
+' > /tmp/java.security
+          java -cp /tmp/bcprov.jar:/tmp/npatch.jar \
+            -Djava.security.properties=/tmp/java.security \
+            top.nkbe.npatch.patch.NPatch /tmp/modified.apk \
+            --embed /tmp/module.apk -f -o /tmp/out
+          cp /tmp/out/*.apk /tmp/final.apk
 
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: fanqie-overlay-patched
-          path: patched.apk
-          retention-days: 90
+          name: fanqie-npatch-dpatch
+          path: /tmp/final.apk
+          retention-days: 30
