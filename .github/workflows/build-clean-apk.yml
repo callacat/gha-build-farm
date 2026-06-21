@@ -9,7 +9,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
-          java-version: '21'
+          java-version: '17'
           distribution: temurin
       - name: Download files
         run: |
@@ -18,23 +18,16 @@ jobs:
             https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie-hook-module-v3.apk
           curl -sL -o /tmp/npatch.jar \
             https://github.com/7723mod/NPatch/releases/download/v1.0.5/jar-v1.0.5-639-release.jar
+          # BouncyCastle for NPatch signing
+          curl -sL -o /tmp/bcprov.jar \
+            https://repo1.maven.org/maven2/org/bouncycastle/bcprov-jdk18on/1.78.1/bcprov-jdk18on-1.78.1.jar
         env:
           URL: 'https://cloud.dsdog.tk/d/google/temp/%E7%95%AA%E8%8C%84%E5%85%8D%E8%B4%B9%E5%B0%8F%E8%AF%B4_7.2.4.32.apk?sign=xUavME2Rt4Vf1FTbCppPq7sU8bRUFh29hrbIhdsXon4=:0'
-      - name: Sign module
+      - name: Patch with NPatch
         run: |
-          keytool -genkey -v -keystore /tmp/ks -alias m \
-            -storepass android -keypass android \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -dname "CN=M,O=M,C=CC" 2>&1
-          SDK=/usr/local/lib/android/sdk
-          AS=$(find "$SDK/build-tools" -name apksigner -type f | head -1)
-          "$AS" sign --ks /tmp/ks --ks-pass pass:android \
-            --key-pass pass:android \
-            --out /tmp/ms.apk /tmp/module.apk 2>&1
-      - name: Patch
-        run: |
-          java -jar /tmp/npatch.jar /tmp/official.apk \
-            --embed /tmp/ms.apk -f -o /tmp/out
+          java -cp "/tmp/npatch.jar:/tmp/bcprov.jar" \
+            top.nkbe.npatch.patch.NPatch /tmp/official.apk \
+            --embed /tmp/module.apk -f -o /tmp/out
           cp /tmp/out/*.apk /tmp/final.apk
       - name: Upload
         uses: actions/upload-artifact@v4
