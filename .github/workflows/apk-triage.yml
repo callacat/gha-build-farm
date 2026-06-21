@@ -1,31 +1,45 @@
-name: Test LSPatch Framework (no module)
+name: APK Triage
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      apk-url:
+        description: APK URL to triage
+        required: false
+        default: ''
+        type: string
 jobs:
-  build:
+  triage:
     runs-on: ubuntu-22.04
-    timeout-minutes: 15
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
-          java-version: '17'
           distribution: temurin
-      - name: Download official APK
+          java-version: 17
+      - name: Download APK
         env:
-          URL: 'https://cloud.dsdog.tk/d/google/temp/%E7%95%AA%E8%8C%84%E5%85%8D%E8%B4%B9%E5%B0%8F%E8%AF%B4_7.2.4.32.apk?sign=xUavME2Rt4Vf1FTbCppPq7sU8bRUFh29hrbIhdsXon4=:0'
-        run: curl -sL --max-time 300 "$URL" -o /tmp/official.apk
-      - name: Download LSPatch
-        run: >-
-          curl -sL -o /tmp/lspatch.jar
-          https://github.com/LSPosed/LSPatch/releases/download/v0.6/jar-v0.6-398-release.jar
-      - name: Patch (no module)
+          BASE: https://github.com/${{ github.repository }}/releases/download/apk-assets
+          DEFAULT_APK: fanqie_novel_official_7.2.4.32.apk
         run: |
-          java -jar /tmp/lspatch.jar /tmp/official.apk -f -o /tmp/out
-          cp /tmp/out/*.apk /tmp/final.apk
+          URL="${{ inputs.apk-url }}"
+          if [ -z "$URL" ]; then URL="$BASE/$DEFAULT_APK"; fi
+          curl -sL -o app.apk "$URL" -w "HTTP %{http_code}, %{size_download}B\n"
+      - name: Install jadx
+        run: |
+          curl -sL -o jadx.zip https://github.com/skylot/jadx/releases/download/v1.5.1/jadx-1.5.1.zip
+          unzip -q jadx.zip -d /opt/jadx
+          echo "/opt/jadx/bin" >> $GITHUB_PATH
+      - name: jadx decompile
+        run: |
+          jadx --show-bad-code -d /tmp/jadx-output app.apk 2>&1 | tail -5
+      - name: apktool unpack
+        run: |
+          curl -sL -o apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v2.11.1/apktool_2.11.1.jar
+          java -jar apktool.jar d -f app.apk -o /tmp/apktool-output 2>&1 | tail -3
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: fanqie-lspatch-framework-test
-          path: /tmp/final.apk
-          retention-days: 30
+          name: triage-output
+          path: /tmp/jadx-output
+          retention-days: 7
