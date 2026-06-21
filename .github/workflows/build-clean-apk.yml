@@ -1,45 +1,9 @@
-name: Matrix Fanqie Build
+name: Precise Fanqie Build
 on:
   workflow_dispatch: {}
 jobs:
-  overlay:
-    name: 2-Full-Overlay
-    runs-on: ubuntu-22.04
-    timeout-minutes: 60
-    steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-java@v4
-      with:
-        java-version: "21"
-        distribution: temurin
-    - name: Prep
-      run: |
-        curl -sL -o official.apk https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie_novel_official_7.2.4.32.apk
-        curl -sL -o modded.apk https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie_novel_7.2.4.19.apk
-        curl -sL -o apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar
-    - name: Decompile
-      run: |
-        java -jar apktool.jar d -f official.apk -o official_smali
-        java -jar apktool.jar d -f modded.apk -o modded_smali
-    - name: Overlay
-      run: python3 .github/scripts/overlay-smali.py
-    - name: Rebuild
-      run: java -jar apktool.jar b official_smali -o unsigned.apk
-    - name: Sign with jarsigner
-      run: |
-        keytool -genkey -v -keystore debug.keystore -alias androiddebugkey -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Debug, OU=Unknown, O=Unknown, L=Unknown, ST=Unknown, C=US"
-        jarsigner -keystore debug.keystore -storepass android -keypass android -sigalg SHA256withRSA -digestalg SHA-256 unsigned.apk androiddebugkey
-        jarsigner -verify unsigned.apk
-        cp unsigned.apk patched.apk
-    - name: Upload
-      uses: actions/upload-artifact@v4
-      with:
-        name: 2-full-overlay
-        path: patched.apk
-        retention-days: 30
-
-  targetted:
-    name: 3-Targetted-NPatch
+  precise:
+    name: Precise-NPatch
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
@@ -48,36 +12,94 @@ jobs:
       with:
         java-version: "21"
         distribution: temurin
-    - name: Prep
+    - name: Download
+      env:
+        URL: "https://cloud.dsdog.tk/d/google/temp/%E7%95%AA%E8%8C%84%E5%85%8D%E8%B4%B9%E5%B0%8F%E8%AF%B4_7.2.4.32.apk?sign=xUavME2Rt4Vf1FTbCppPq7sU8bRUFh29hrbIhdsXon4=:0"
       run: |
-        curl -sL -o official.apk https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie_novel_official_7.2.4.32.apk
-        curl -sL -o modded.apk https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie_novel_7.2.4.19.apk
-        curl -sL -o apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar
-        curl -sL -o npatch.jar https://github.com/7723mod/NPatch/releases/download/v1.0.5/jar-v1.0.5-639-release.jar
-        curl -sL -o bcprov.jar https://repo1.maven.org/maven2/org/bouncycastle/bcprov-jdk18on/1.78.1/bcprov-jdk18on-1.78.1.jar
-        curl -sL -o module.apk https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie-hook-module-dpatch.apk
-    - name: Decompile
+        curl -sL --max-time 300 "$URL" -o /tmp/official.apk
+        curl -sL -o /tmp/modded.apk https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie_novel_7.2.4.19.apk
+        curl -sL -o /tmp/apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar
+        curl -sL -o /tmp/npatch.jar https://github.com/7723mod/NPatch/releases/download/v1.0.5/jar-v1.0.5-639-release.jar
+        curl -sL -o /tmp/bcprov.jar https://repo1.maven.org/maven2/org/bouncycastle/bcprov-jdk18on/1.78.1/bcprov-jdk18on-1.78.1.jar
+        curl -sL -o /tmp/module.apk https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie-hook-module-dpatch.apk
+    - name: Decompile both
       run: |
-        java -jar apktool.jar d -f official.apk -o official_smali
-        java -jar apktool.jar d -f modded.apk -o modded_smali
-    - name: Overlay
-      run: python3 .github/scripts/overlay-smali.py
+        java -jar /tmp/apktool.jar d -f /tmp/official.apk -o official
+        java -jar /tmp/apktool.jar d -f /tmp/modded.apk -o modded
+    - name: Precise overlay - checkSign classes + DPatch
+      run: |
+        python3 -c "
+import os, shutil
+
+# Only overlay smali dirs that contain checkSign/DPatch related files
+KEY_FILES = [
+    'NovelCommonParam', 'AntiCheatParam', 'HeaderArgs',
+    'AppFactory', 'CreatorProxy',
+    'checkSign', 'CheckSign', 'check_sign',
+    'DeviceRegister',
+]
+
+mod = 'modded'
+off = 'official'
+
+# Find which smali subdirs in modded contain these keywords
+target_dirs = set()
+for root, dirs, files in os.walk(mod):
+    for f in files:
+        if not f.endswith('.smali'):
+            continue
+        fpath = os.path.join(root, f)
+        try:
+            with open(fpath, 'rb') as fh:
+                data = fh.read(16384)
+                for kw in KEY_FILES:
+                    if kw.encode() in data:
+                        top = os.path.relpath(root, mod).split(os.sep)[0]
+                        if top.startswith('smali'):
+                            target_dirs.add(top)
+                        break
+        except:
+            pass
+
+target_dirs = sorted(target_dirs)
+print(f'Targeting {len(target_dirs)} dirs:')
+for d in target_dirs:
+    print(f'  {d}')
+
+# Copy target dirs from modded to official
+for item in target_dirs:
+    src = os.path.join(mod, item)
+    dst = os.path.join(off, item)
+    if os.path.exists(dst):
+        shutil.rmtree(dst)
+    shutil.copytree(src, dst)
+
+# Also copy DPatch dirs specifically
+for root, dirs, files in os.walk(mod):
+    for f in files:
+        if 'pandora/core' in os.path.join(root, f):
+            rel = os.path.relpath(os.path.join(root, f), mod)
+            dst = os.path.join(off, rel)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copy2(os.path.join(root, f), dst)
+            print(f'  DPatch: {rel}')
+
+# Update Manifest
+shutil.copy2(os.path.join(mod, 'AndroidManifest.xml'), os.path.join(off, 'AndroidManifest.xml'))
+print('Manifest applied')
+print('DONE')
+"
     - name: Rebuild
-      run: java -jar apktool.jar b official_smali -o unsigned.apk
-    - name: NPatch embed
+      run: java -jar /tmp/apktool.jar b official -o /tmp/unsigned.apk
+    - name: NPatch embed DPatch (auto-signs)
       run: |
-        printf 'security.provider.9=org.bouncycastle.jce.provider.BouncyCastleProvider\n' > java.security
-        java -cp bcprov.jar:npatch.jar -Djava.security.properties=./java.security top.nkbe.npatch.patch.NPatch unsigned.apk --embed module.apk -f -o npatched
-        cp npatched/*.apk patched.apk
-    - name: Sign with jarsigner
-      run: |
-        keytool -genkey -v -keystore debug.keystore -alias androiddebugkey -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Debug, OU=Unknown, O=Unknown, L=Unknown, ST=Unknown, C=US"
-        jarsigner -keystore debug.keystore -storepass android -keypass android -sigalg SHA256withRSA -digestalg SHA-256 patched.apk androiddebugkey
-        jarsigner -verify patched.apk
-        cp patched.apk final.apk
+        printf 'security.provider.9=org.bouncycastle.jce.provider.BouncyCastleProvider\n' > /tmp/java.security
+        java -cp /tmp/bcprov.jar:/tmp/npatch.jar -Djava.security.properties=/tmp/java.security \
+          top.nkbe.npatch.patch.NPatch /tmp/unsigned.apk --embed /tmp/module.apk -f -o /tmp/out
+        cp /tmp/out/*.apk /tmp/final.apk
     - name: Upload
       uses: actions/upload-artifact@v4
       with:
-        name: 3-targetted-npatch
-        path: final.apk
+        name: precise-fanqie
+        path: /tmp/final.apk
         retention-days: 30
