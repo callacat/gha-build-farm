@@ -11,30 +11,24 @@ jobs:
         with:
           java-version: '21'
           distribution: temurin
-      - name: Download files
+      - name: Download everything
         run: |
           curl -sL --max-time 300 "$URL" -o /tmp/official.apk
           curl -sL -o /tmp/module.apk \
             https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie-hook-module-v3.apk
           curl -sL -o /tmp/npatch.jar \
             https://github.com/7723mod/NPatch/releases/download/v1.0.5/jar-v1.0.5-639-release.jar
+          curl -sL -o /tmp/bcprov.jar \
+            https://repo1.maven.org/maven2/org/bouncycastle/bcprov-jdk18on/1.78.1/bcprov-jdk18on-1.78.1.jar
         env:
           URL: 'https://cloud.dsdog.tk/d/google/temp/%E7%95%AA%E8%8C%84%E5%85%8D%E8%B4%B9%E5%B0%8F%E8%AF%B4_7.2.4.32.apk?sign=xUavME2Rt4Vf1FTbCppPq7sU8bRUFh29hrbIhdsXon4=:0'
-      - name: Patch
+      - name: Patch with NPatch (BC on classpath)
         run: |
-          cd /tmp
-          mkdir -p out
-          # Create JKS keystore (no BC needed)
-          keytool -genkey -v -keystore debug.jks -alias debug \
-            -storetype jks -storepass android -keypass android \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -dname "CN=D,O=D,C=CC" >/dev/null 2>&1
-          # NPatch needs a configuration
-          printf '{"keystore":"debug.jks","keystore_password":"android","key_password":"android","key_alias":"debug"}' > config.json
-          java -jar npatch.jar /tmp/official.apk --embed /tmp/module.apk -f -o /tmp/out 2>&1 || \
-          java -jar npatch.jar /tmp/official.apk --embed /tmp/module.apk -f -o /tmp/out \
-            --keystore debug.jks --keystore-password android 2>&1 || true
-          cp /tmp/out/*.apk /tmp/final.apk 2>/dev/null
+          java -cp /tmp/bcprov.jar:/tmp/npatch.jar \
+            -Djava.security.properties=/dev/stdin \
+            top.nkbe.npatch.patch.NPatch /tmp/official.apk \
+            --embed /tmp/module.apk -f -o /tmp/out 2>&1 <<< $(printf 'security.provider.9=org.bouncycastle.jce.provider.BouncyCastleProvider\n')
+          cp /tmp/out/*.apk /tmp/final.apk
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
