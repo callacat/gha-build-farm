@@ -15,7 +15,7 @@ jobs:
       - name: Download official APK
         run: curl -sL --max-time 300 "$URL" -o /tmp/official.apk
         env:
-          URL: https://cloud.dsdog.tk/d/google/temp/%E7%95%AA%E8%8C%84%E5%85%8D%E8%B4%B9%E5%B0%8F%E8%AF%B4_7.2.4.32.apk?sign=xUavME2Rt4Vf1FTbCppPq7sU8bRUFh29hrbIhdsXon4=:0
+          URL: "https://cloud.dsdog.tk/d/google/temp/%E7%95%AA%E8%8C%84%E5%85%8D%E8%B4%B9%E5%B0%8F%E8%AF%B4_7.2.4.32.apk?sign=xUavME2Rt4Vf1FTbCppPq7sU8bRUFh29hrbIhdsXon4=:0"
 
       - name: Download tools
         run: |
@@ -24,18 +24,16 @@ jobs:
           curl -sL -o /tmp/npatch.jar https://github.com/7723mod/NPatch/releases/download/v1.0.5/jar-v1.0.5-639-release.jar
           curl -sL -o /tmp/bcprov.jar https://repo1.maven.org/maven2/org/bouncycastle/bcprov-jdk18on/1.78.1/bcprov-jdk18on-1.78.1.jar
 
-      - name: Patch manifest - set appComponentFactory
+      - name: Decompile then patch manifest
         run: |
           java -jar /tmp/apktool.jar d -f /tmp/official.apk -o /tmp/apk_out
-          # Change appComponentFactory to DPatch's
           sed -i 's|android:appComponentFactory="androidx.core.app.CoreComponentFactory"|android:appComponentFactory="com.pandora.core.AppFactory"|' /tmp/apk_out/AndroidManifest.xml
           grep appComponentFactory /tmp/apk_out/AndroidManifest.xml
           java -jar /tmp/apktool.jar b /tmp/apk_out -o /tmp/modified.apk
 
       - name: Embed DPatch module with NPatch
         run: |
-          printf 'security.provider.9=org.bouncycastle.jce.provider.BouncyCastleProvider
-' > /tmp/java.security
+          printf 'security.provider.9=org.bouncycastle.jce.provider.BouncyCastleProvider\n' > /tmp/java.security
           java -cp /tmp/bcprov.jar:/tmp/npatch.jar \
             -Djava.security.properties=/tmp/java.security \
             top.nkbe.npatch.patch.NPatch /tmp/modified.apk \
