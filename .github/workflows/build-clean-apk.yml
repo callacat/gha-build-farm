@@ -2,40 +2,6 @@ name: Matrix Fanqie Build
 on:
   workflow_dispatch: {}
 jobs:
-  npatch:
-    name: 1-NPatch-Manifest
-    runs-on: ubuntu-22.04
-    timeout-minutes: 15
-    steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-java@v4
-      with:
-        java-version: "21"
-        distribution: temurin
-    - name: Download
-      env:
-        URL: "https://cloud.dsdog.tk/d/google/temp/%E7%95%AA%E8%8C%84%E5%85%8D%E8%B4%B9%E5%B0%8F%E8%AF%B4_7.2.4.32.apk?sign=xUavME2Rt4Vf1FTbCppPq7sU8bRUFh29hrbIhdsXon4=:0"
-      run: |
-        curl -sL --max-time 300 "$URL" -o /tmp/official.apk
-        curl -sL -o /tmp/npatch.jar https://github.com/7723mod/NPatch/releases/download/v1.0.5/jar-v1.0.5-639-release.jar
-        curl -sL -o /tmp/bcprov.jar https://repo1.maven.org/maven2/org/bouncycastle/bcprov-jdk18on/1.78.1/bcprov-jdk18on-1.78.1.jar
-        curl -sL -o /tmp/apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar
-        curl -sL -o /tmp/module.apk https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie-hook-module-dpatch.apk
-    - name: Build NPatch
-      run: |
-        java -jar /tmp/apktool.jar d -f /tmp/official.apk -o /tmp/apk_out
-        sed -i 's|android:appComponentFactory="androidx.core.app.CoreComponentFactory"|android:appComponentFactory="com.pandora.core.AppFactory"|' /tmp/apk_out/AndroidManifest.xml
-        java -jar /tmp/apktool.jar b /tmp/apk_out -o /tmp/modified.apk
-        printf 'security.provider.9=org.bouncycastle.jce.provider.BouncyCastleProvider\n' > /tmp/java.security
-        java -cp /tmp/bcprov.jar:/tmp/npatch.jar -Djava.security.properties=/tmp/java.security top.nkbe.npatch.patch.NPatch /tmp/modified.apk --embed /tmp/module.apk -f -o /tmp/out
-        cp /tmp/out/*.apk /tmp/final.apk
-    - name: Upload
-      uses: actions/upload-artifact@v4
-      with:
-        name: 1-npatch-manifest
-        path: /tmp/final.apk
-        retention-days: 30
-
   overlay:
     name: 2-Full-Overlay
     runs-on: ubuntu-22.04
@@ -44,7 +10,7 @@ jobs:
     - uses: actions/checkout@v4
     - uses: actions/setup-java@v4
       with:
-        java-version: "17"
+        java-version: "21"
         distribution: temurin
     - name: Prep
       run: |
@@ -59,10 +25,12 @@ jobs:
       run: python3 .github/scripts/overlay-smali.py
     - name: Rebuild
       run: java -jar apktool.jar b official_smali -o unsigned.apk
-    - name: Sign
+    - name: Sign with jarsigner
       run: |
         keytool -genkey -v -keystore debug.keystore -alias androiddebugkey -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Debug, OU=Unknown, O=Unknown, L=Unknown, ST=Unknown, C=US"
-        apksigner sign --ks debug.keystore --ks-pass pass:android --ks-key-alias androiddebugkey --out patched.apk unsigned.apk
+        jarsigner -keystore debug.keystore -storepass android -keypass android -sigalg SHA256withRSA -digestalg SHA-256 unsigned.apk androiddebugkey
+        jarsigner -verify unsigned.apk
+        cp unsigned.apk patched.apk
     - name: Upload
       uses: actions/upload-artifact@v4
       with:
@@ -78,7 +46,7 @@ jobs:
     - uses: actions/checkout@v4
     - uses: actions/setup-java@v4
       with:
-        java-version: "17"
+        java-version: "21"
         distribution: temurin
     - name: Prep
       run: |
@@ -92,10 +60,8 @@ jobs:
       run: |
         java -jar apktool.jar d -f official.apk -o official_smali
         java -jar apktool.jar d -f modded.apk -o modded_smali
-    - name: Find-and-overlay
-      run: |
-        python3 .github/scripts/find-modified-files.py
-        python3 .github/scripts/overlay-smali.py
+    - name: Overlay
+      run: python3 .github/scripts/overlay-smali.py
     - name: Rebuild
       run: java -jar apktool.jar b official_smali -o unsigned.apk
     - name: NPatch embed
@@ -103,10 +69,12 @@ jobs:
         printf 'security.provider.9=org.bouncycastle.jce.provider.BouncyCastleProvider\n' > java.security
         java -cp bcprov.jar:npatch.jar -Djava.security.properties=./java.security top.nkbe.npatch.patch.NPatch unsigned.apk --embed module.apk -f -o npatched
         cp npatched/*.apk patched.apk
-    - name: Sign
+    - name: Sign with jarsigner
       run: |
         keytool -genkey -v -keystore debug.keystore -alias androiddebugkey -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Debug, OU=Unknown, O=Unknown, L=Unknown, ST=Unknown, C=US"
-        apksigner sign --ks debug.keystore --ks-pass pass:android --ks-key-alias androiddebugkey --out final.apk patched.apk
+        jarsigner -keystore debug.keystore -storepass android -keypass android -sigalg SHA256withRSA -digestalg SHA-256 patched.apk androiddebugkey
+        jarsigner -verify patched.apk
+        cp patched.apk final.apk
     - name: Upload
       uses: actions/upload-artifact@v4
       with:
