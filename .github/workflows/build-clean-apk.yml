@@ -24,13 +24,14 @@ jobs:
 
     - name: LSPatch embed
       run: |
-        java -jar /tmp/lspatch.jar /tmp/official.apk -m /tmp/module.apk --embed -o /tmp/out
-        echo "=== Output ==="
-        ls -lh /tmp/out/
+        java -jar /tmp/lspatch.jar /tmp/official.apk \
+          -m /tmp/module.apk --embed -l 1 -d -f -o /tmp/out
+        ls -lh /tmp/out/*.apk
+        cp /tmp/out/*.apk /tmp/final.apk
 
     - name: Upload
       uses: actions/upload-artifact@v4
       with:
-        name: fanqie-lspatch
-        path: /tmp/out/*.apk
+        name: fanqie-lspatched
+        path: /tmp/final.apk
         retention-days: 30
