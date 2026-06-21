@@ -3,133 +3,113 @@ on:
   workflow_dispatch: {}
 jobs:
   npatch:
-    name: "1-NPatch+Manifest"
+    name: 1-NPatch-Manifest
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with: { java-version: "21", distribution: temurin }
-      - name: Download
-        run: |
-          curl -sL --max-time 300 "$URL" -o /tmp/official.apk
-          curl -sL -o /tmp/module.apk https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie-hook-module-dpatch.apk
-          curl -sL -o /tmp/npatch.jar https://github.com/7723mod/NPatch/releases/download/v1.0.5/jar-v1.0.5-639-release.jar
-          curl -sL -o /tmp/bcprov.jar https://repo1.maven.org/maven2/org/bouncycastle/bcprov-jdk18on/1.78.1/bcprov-jdk18on-1.78.1.jar
-          curl -sL -o /tmp/apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar
-        env:
-          URL: "https://cloud.dsdog.tk/d/google/temp/%E7%95%AA%E8%8C%84%E5%85%8D%E8%B4%B9%E5%B0%8F%E8%AF%B4_7.2.4.32.apk?sign=xUavME2Rt4Vf1FTbCppPq7sU8bRUFh29hrbIhdsXon4=:0"
-      - name: Patch manifest + NPatch
-        run: |
-          java -jar /tmp/apktool.jar d -f /tmp/official.apk -o /tmp/apk_out
-          sed -i 's|android:appComponentFactory="androidx.core.app.CoreComponentFactory"|android:appComponentFactory="com.pandora.core.AppFactory"|' /tmp/apk_out/AndroidManifest.xml
-          java -jar /tmp/apktool.jar b /tmp/apk_out -o /tmp/modified.apk
-          printf 'security.provider.9=org.bouncycastle.jce.provider.BouncyCastleProvider\n' > /tmp/java.security
-          java -cp /tmp/bcprov.jar:/tmp/npatch.jar -Djava.security.properties=/tmp/java.security \
-            top.nkbe.npatch.patch.NPatch /tmp/modified.apk --embed /tmp/module.apk -f -o /tmp/out
-          cp /tmp/out/*.apk /tmp/final.apk
-      - name: Upload
-        uses: actions/upload-artifact@v4
-        with: { name: 1-npatch-manifest, path: /tmp/final.apk, retention-days: 30 }
+    - uses: actions/checkout@v4
+    - uses: actions/setup-java@v4
+      with:
+        java-version: "21"
+        distribution: temurin
+    - name: Download
+      env:
+        URL: "https://cloud.dsdog.tk/d/google/temp/%E7%95%AA%E8%8C%84%E5%85%8D%E8%B4%B9%E5%B0%8F%E8%AF%B4_7.2.4.32.apk?sign=xUavME2Rt4Vf1FTbCppPq7sU8bRUFh29hrbIhdsXon4=:0"
+      run: |
+        curl -sL --max-time 300 "$URL" -o /tmp/official.apk
+        curl -sL -o /tmp/npatch.jar https://github.com/7723mod/NPatch/releases/download/v1.0.5/jar-v1.0.5-639-release.jar
+        curl -sL -o /tmp/bcprov.jar https://repo1.maven.org/maven2/org/bouncycastle/bcprov-jdk18on/1.78.1/bcprov-jdk18on-1.78.1.jar
+        curl -sL -o /tmp/apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar
+        curl -sL -o /tmp/module.apk https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie-hook-module-dpatch.apk
+    - name: Build NPatch
+      run: |
+        java -jar /tmp/apktool.jar d -f /tmp/official.apk -o /tmp/apk_out
+        sed -i 's|android:appComponentFactory="androidx.core.app.CoreComponentFactory"|android:appComponentFactory="com.pandora.core.AppFactory"|' /tmp/apk_out/AndroidManifest.xml
+        java -jar /tmp/apktool.jar b /tmp/apk_out -o /tmp/modified.apk
+        printf 'security.provider.9=org.bouncycastle.jce.provider.BouncyCastleProvider\n' > /tmp/java.security
+        java -cp /tmp/bcprov.jar:/tmp/npatch.jar -Djava.security.properties=/tmp/java.security top.nkbe.npatch.patch.NPatch /tmp/modified.apk --embed /tmp/module.apk -f -o /tmp/out
+        cp /tmp/out/*.apk /tmp/final.apk
+    - name: Upload
+      uses: actions/upload-artifact@v4
+      with:
+        name: 1-npatch-manifest
+        path: /tmp/final.apk
+        retention-days: 30
 
   overlay:
-    name: "2-Full-Overlay"
+    name: 2-Full-Overlay
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with: { java-version: "17", distribution: temurin }
-      - name: Download APKs + apktool
-        run: |
-          curl -sL -o official.apk "https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie_novel_official_7.2.4.32.apk"
-          curl -sL -o modded.apk "https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie_novel_7.2.4.19.apk"
-          curl -sL -o apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar
-      - name: Decompile both
-        run: |
-          java -jar apktool.jar d -f official.apk -o official_smali
-          java -jar apktool.jar d -f modded.apk -o modded_smali
-      - name: Overlay all smali + AndroidManifest
-        run: |
-          python3 -c "
-import os, shutil
-mod, off = 'modded_smali', 'official_smali'
-for item in sorted(os.listdir(mod)):
-    s, d = os.path.join(mod, item), os.path.join(off, item)
-    if not os.path.isdir(s) or item == 'original': continue
-    if item.startswith('smali') or item == 'unknown':
-        if os.path.exists(d): shutil.rmtree(d)
-        shutil.copytree(s, d)
-        print(f'  {item}')
-shutil.copy2(os.path.join(mod, 'AndroidManifest.xml'), os.path.join(off, 'AndroidManifest.xml'))
-print('DONE')
-"
-      - name: Rebuild & sign
-        run: |
-          java -jar apktool.jar b official_smali -o unsigned.apk
-          keytool -genkey -v -keystore debug.keystore -alias androiddebugkey -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Debug, OU=Unknown, O=Unknown, L=Unknown, ST=Unknown, C=US"
-          apksigner sign --ks debug.keystore --ks-pass pass:android --ks-key-alias androiddebugkey --out patched.apk unsigned.apk
-      - name: Upload
-        uses: actions/upload-artifact@v4
-        with: { name: 2-full-overlay, path: patched.apk, retention-days: 30 }
+    - uses: actions/checkout@v4
+    - uses: actions/setup-java@v4
+      with:
+        java-version: "17"
+        distribution: temurin
+    - name: Prep
+      run: |
+        curl -sL -o official.apk https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie_novel_official_7.2.4.32.apk
+        curl -sL -o modded.apk https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie_novel_7.2.4.19.apk
+        curl -sL -o apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar
+    - name: Decompile
+      run: |
+        java -jar apktool.jar d -f official.apk -o official_smali
+        java -jar apktool.jar d -f modded.apk -o modded_smali
+    - name: Overlay
+      run: python3 .github/scripts/overlay-smali.py
+    - name: Rebuild
+      run: java -jar apktool.jar b official_smali -o unsigned.apk
+    - name: Sign
+      run: |
+        keytool -genkey -v -keystore debug.keystore -alias androiddebugkey -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Debug, OU=Unknown, O=Unknown, L=Unknown, ST=Unknown, C=US"
+        apksigner sign --ks debug.keystore --ks-pass pass:android --ks-key-alias androiddebugkey --out patched.apk unsigned.apk
+    - name: Upload
+      uses: actions/upload-artifact@v4
+      with:
+        name: 2-full-overlay
+        path: patched.apk
+        retention-days: 30
 
   targetted:
-    name: "3-Targetted+NPatch"
+    name: 3-Targetted-NPatch
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with: { java-version: "17", distribution: temurin }
-      - name: Download
-        run: |
-          curl -sL -o official.apk "https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie_novel_official_7.2.4.32.apk"
-          curl -sL -o modded.apk "https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie_novel_7.2.4.19.apk"
-          curl -sL -o apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar
-          curl -sL -o npatch.jar https://github.com/7723mod/NPatch/releases/download/v1.0.5/jar-v1.0.5-639-release.jar
-          curl -sL -o bcprov.jar https://repo1.maven.org/maven2/org/bouncycastle/bcprov-jdk18on/1.78.1/bcprov-jdk18on-1.78.1.jar
-          curl -sL -o module.apk https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie-hook-module-dpatch.apk
-      - name: Decompile both
-        run: |
-          java -jar apktool.jar d -f official.apk -o official_smali
-          java -jar apktool.jar d -f modded.apk -o modded_smali
-      - name: Targetted overlay
-        run: |
-          python3 -c "
-import os, shutil
-KEY_FILES = ['checkSign','CheckSign','NovelCommonParam','AntiCheatParam','HeaderArgs','AppFactory','CreatorProxy','DeviceRegister','getPackageInfo','signature']
-mod, off = 'modded_smali', 'official_smali'
-target_dirs = set()
-for root, dirs, files in os.walk(mod):
-    for f in files:
-        try:
-            with open(os.path.join(root,f),'rb') as fh:
-                data = fh.read()
-                for kw in KEY_FILES:
-                    if kw.encode() in data:
-                        top = os.path.relpath(root,mod).split(os.sep)[0]
-                        if top.startswith('smali') or top == 'unknown':
-                            target_dirs.add(top)
-                        break
-        except: pass
-target_dirs = sorted(target_dirs)
-print(f'Targeted {len(target_dirs)} dirs: {target_dirs}')
-for item in target_dirs:
-    s, d = os.path.join(mod, item), os.path.join(off, item)
-    if os.path.exists(d): shutil.rmtree(d)
-    shutil.copytree(s, d)
-shutil.copy2(os.path.join(mod, 'AndroidManifest.xml'), os.path.join(off, 'AndroidManifest.xml'))
-print('DONE')
-"
-      - name: Rebuild + NPatch + sign
-        run: |
-          java -jar apktool.jar b official_smali -o unsigned.apk
-          printf 'security.provider.9=org.bouncycastle.jce.provider.BouncyCastleProvider\n' > java.security
-          java -cp bcprov.jar:npatch.jar -Djava.security.properties=./java.security \
-            top.nkbe.npatch.patch.NPatch unsigned.apk --embed module.apk -f -o npatched
-          cp npatched/*.apk patched.apk
-          keytool -genkey -v -keystore debug.keystore -alias androiddebugkey -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Debug, OU=Unknown, O=Unknown, L=Unknown, ST=Unknown, C=US"
-          apksigner sign --ks debug.keystore --ks-pass pass:android --ks-key-alias androiddebugkey --out final.apk patched.apk
-      - name: Upload
-        uses: actions/upload-artifact@v4
-        with: { name: 3-targetted-npatch, path: final.apk, retention-days: 30 }
+    - uses: actions/checkout@v4
+    - uses: actions/setup-java@v4
+      with:
+        java-version: "17"
+        distribution: temurin
+    - name: Prep
+      run: |
+        curl -sL -o official.apk https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie_novel_official_7.2.4.32.apk
+        curl -sL -o modded.apk https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie_novel_7.2.4.19.apk
+        curl -sL -o apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar
+        curl -sL -o npatch.jar https://github.com/7723mod/NPatch/releases/download/v1.0.5/jar-v1.0.5-639-release.jar
+        curl -sL -o bcprov.jar https://repo1.maven.org/maven2/org/bouncycastle/bcprov-jdk18on/1.78.1/bcprov-jdk18on-1.78.1.jar
+        curl -sL -o module.apk https://github.com/callacat/gha-build-farm/releases/download/apk-assets/fanqie-hook-module-dpatch.apk
+    - name: Decompile
+      run: |
+        java -jar apktool.jar d -f official.apk -o official_smali
+        java -jar apktool.jar d -f modded.apk -o modded_smali
+    - name: Find-and-overlay
+      run: |
+        python3 .github/scripts/find-modified-files.py
+        python3 .github/scripts/overlay-smali.py
+    - name: Rebuild
+      run: java -jar apktool.jar b official_smali -o unsigned.apk
+    - name: NPatch embed
+      run: |
+        printf 'security.provider.9=org.bouncycastle.jce.provider.BouncyCastleProvider\n' > java.security
+        java -cp bcprov.jar:npatch.jar -Djava.security.properties=./java.security top.nkbe.npatch.patch.NPatch unsigned.apk --embed module.apk -f -o npatched
+        cp npatched/*.apk patched.apk
+    - name: Sign
+      run: |
+        keytool -genkey -v -keystore debug.keystore -alias androiddebugkey -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Debug, OU=Unknown, O=Unknown, L=Unknown, ST=Unknown, C=US"
+        apksigner sign --ks debug.keystore --ks-pass pass:android --ks-key-alias androiddebugkey --out final.apk patched.apk
+    - name: Upload
+      uses: actions/upload-artifact@v4
+      with:
+        name: 3-targetted-npatch
+        path: final.apk
+        retention-days: 30
