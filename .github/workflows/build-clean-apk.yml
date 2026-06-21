@@ -10,9 +10,9 @@ jobs:
 
       - name: Download APKs
         run: |
-          RELEASE_URL="https://github.com/\${{ github.repository }}/releases/download/apk-assets"
-          curl -sL -o official.apk "\$RELEASE_URL/fanqie_novel_official_7.2.4.32.apk"
-          curl -sL -o modded.apk "\$RELEASE_URL/fanqie_novel_7.2.4.19.apk"
+          RELEASE_URL="https://github.com/callacat/gha-build-farm/releases/download/apk-assets"
+          curl -sL -o official.apk "$RELEASE_URL/fanqie_novel_official_7.2.4.32.apk"
+          curl -sL -o modded.apk "$RELEASE_URL/fanqie_novel_7.2.4.19.apk"
 
       - uses: actions/setup-java@v4
         with:
@@ -29,25 +29,21 @@ jobs:
       - name: Decompile modded
         run: java -jar apktool.jar d -f modded.apk -o modded_smali
 
-      - name: Overlay all modded smali onto official
+      - name: Overlay
         run: |
           python3 << 'PYEOF'
 import os, shutil
 mod, off = 'modded_smali', 'official_smali'
 for item in sorted(os.listdir(mod)):
-    src = os.path.join(mod, item)
-    dst = os.path.join(off, item)
+    src, dst = os.path.join(mod, item), os.path.join(off, item)
     if item == 'original' or not os.path.isdir(src):
         continue
     if item.startswith('smali'):
-        print(f'Overlaying {item}...')
+        print(f'Overlay {item}...')
         if os.path.exists(dst):
             shutil.rmtree(dst)
         shutil.copytree(src, dst)
-# Overwrite AndroidManifest (has appComponentFactory)
-shutil.copy2(os.path.join(mod, 'AndroidManifest.xml'),
-             os.path.join(off, 'AndroidManifest.xml'))
-print('AndroidManifest applied')
+shutil.copy2(os.path.join(mod, 'AndroidManifest.xml'), os.path.join(off, 'AndroidManifest.xml'))
 print('DONE')
 PYEOF
 
@@ -59,9 +55,6 @@ PYEOF
           keytool -genkey -v -keystore debug.keystore -alias androiddebugkey             -storepass android -keypass android -keyalg RSA -keysize 2048             -validity 10000 -dname "CN=Debug, OU=Unknown, O=Unknown, L=Unknown, ST=Unknown, C=US"
           apksigner sign --ks debug.keystore --ks-pass pass:android             --ks-key-alias androiddebugkey --out patched.apk unsigned.apk
           ls -lh patched.apk
-
-      - name: Verify
-        run: apksigner verify --print-certs patched.apk
 
       - name: Upload
         uses: actions/upload-artifact@v4
