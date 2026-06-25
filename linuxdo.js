@@ -67,9 +67,8 @@
         scheduleScroll();
     });
 
-    document.addEventListener('DOMContentLoaded', () => {
-        observer.observe(document.body, { childList: true, subtree: true });
-        doScroll();
-    });
+    // 油猴脚本在 document-end 运行，DOM 已就绪，直接启动
+    observer.observe(document.body, { childList: true, subtree: true });
+    doScroll();
 
 })();
