@@ -26,10 +26,16 @@
     let atBottom = false;
 
     function clickRandomTitle() {
-        const titles = document.getElementsByClassName('title raw-link raw-topic-link');
-        if (titles.length > 0) {
+        // ponytail: 列表页用精确 class, 话题页推荐区用 href 兜底
+        let links = document.querySelectorAll('a.title.raw-link.raw-topic-link, a[href*="/t/topic/"]');
+        if (links.length === 0) {
+            links = document.querySelectorAll('a[href*="/t/"]');
+        }
+        for (const link of links) {
+            if (link.closest('nav, .breadcrumbs, .select-kit')) continue;
             atBottom = false;
-            titles[Math.floor(Math.random() * titles.length)].click();
+            link.click();
+            return;
         }
     }
 
