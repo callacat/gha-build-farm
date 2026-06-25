@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         linux.do看帖懒人神器
 // @namespace    
-// @version      2024-03-12 1.1.1
+// @version      2024-03-12 1.2.0
 // @description  帮你点开新帖子，帮你从上到下滑动，帮你选择下一个看的帖子。
 // @author       
 // @match        https://linux.do/*
@@ -14,75 +14,47 @@
 
 (function() {
     'use strict';
+
+    // ===== 可调参数（改这里控制滚动速度） =====
+    const SCROLL_STEP = 300;        // 每次滚动像素数，越小越慢
+    const SCROLL_INTERVAL = 1500;   // 滚动间隔(毫秒)，越大越慢
+    const RELOAD_DELAY = 10000;     // 加载失败后等待(毫秒)
+    // =====================================
+
     function waitSomeSeconds() {
         setTimeout(function() {
             console.log('10秒钟已过！');
-window.location.href="/latest";
-            }, 10000); // 10000毫秒等于10秒
-        };
-    function clickRandomTitle() {
-        const titles = document.getElementsByClassName('title raw-link raw-topic-link');
-        if (titles.length > 0) {
-            const randomIndex = Math.floor(Math.random() * titles.length);
-            const randomTitle = titles[randomIndex];
-            randomTitle.click();
-        } else {
-            console.log('No elements found with the specified class names.');
-
-        }
+            window.location.href = "/latest";
+        }, RELOAD_DELAY);
     }
 
-    function scrollToBottom() {
+    let scrollTimer = null;
+
+    function startScroll() {
+        if (scrollTimer) clearTimeout(scrollTimer);
+
         const isBottom = window.innerHeight + window.scrollY >= document.body.offsetHeight;
         if (!isBottom) {
-            window.scrollBy(0, 500);
-            setTimeout(scrollToBottom, 1500); // 控制滚动间隔
+            window.scrollBy(0, SCROLL_STEP);
+            scrollTimer = setTimeout(startScroll, SCROLL_INTERVAL);
         } else {
-
-            var dd='抱歉，我们无法加载该话题，可能是由于连接问题。请重试。如果问题仍然存在，请告诉我们。';
-            if(document.body.textContent.includes(dd)){waitSomeSeconds();}else{clickRandomTitle();
-            console.log("Reached the bottom of the page.");};
-
+            var dd = '抱歉，我们无法加载该话题，可能是由于连接问题。请重试。如果问题仍然存在，请告诉我们。';
+            if (document.body.textContent.includes(dd)) {
+                waitSomeSeconds();
+            } else {
+                clickRandomTitle();
+                console.log("Reached the bottom of the page.");
+            }
         }
     }
 
-    function debounce(func, wait) {
-        let timeout;
-        return function(...args) {
-            const context = this;
-            clearTimeout(timeout);
-            timeout = setTimeout(function() {
-                func.apply(context, args);
-            }, wait);
-        };
-    }
-
-    function hasPageUpdated(mutations) {
-        return mutations.some(mutation => mutation.addedNodes.length > 0);
-    }
-
-    // 使用防抖函数来控制scrollToBottom的调用
-    const debouncedScrollToBottom = debounce(scrollToBottom, 1000); // 1秒后执行
-
-    // 监听滚动事件，并在用户停止滚动后执行debouncedScrollToBottom
-    let scrollTimeout;
-    window.addEventListener('scroll', () => {
-        clearTimeout(scrollTimeout);
-        scrollTimeout = setTimeout(debouncedScrollToBottom, 1000); // 1秒后执行
+    const observer = new MutationObserver(() => {
+        startScroll();
     });
 
-    // 监听DOM变化
-    const observer = new MutationObserver(mutations => {
-        if (hasPageUpdated(mutations)) {
-            debouncedScrollToBottom();
-        }
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-
-    // 等待页面加载完毕
     document.addEventListener('DOMContentLoaded', () => {
-        debouncedScrollToBottom();
-        // 不要立即执行scrollToBottom，而是在用户滚动时触发
+        observer.observe(document.body, { childList: true, subtree: true });
+        startScroll();
     });
 
 })();
