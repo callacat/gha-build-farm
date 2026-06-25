@@ -1,15 +1,15 @@
 // ==UserScript==
 // @name         linux.do看帖懒人神器
 // @namespace
-// @version      1.5.0
+// @version      1.6.0
 // @description  帮你点开新帖子，帮你从上到下滑动，帮你选择下一个看的帖子。
 // @author
 // @match        https://linux.do/*
 // @icon         https://linux.do/uploads/default/optimized/1X/3a18b4b0da3e8cf96f7eea15241c3d251f28a39b_2_180x180.png
 // @grant        none
 // @license      MIT
-// @downloadURL https://update.greasyfork.org/scripts/489607/linuxdo%E7%9C%8B%E5%B8%96%E6%87%92%E4%BA%BA%E7%A5%9E%E5%99%A8.user.js
-// @updateURL https://update.greasyfork.org/scripts/489607/linuxdo%E7%9C%8B%E5%B8%96%E6%87%92%E4%BA%BA%E7%A5%9E%E5%99%A8.meta.js
+// @downloadURL https://raw.githubusercontent.com/callacat/gha-build-farm/main/linuxdo.js
+// @updateURL https://raw.githubusercontent.com/callacat/gha-build-farm/main/linuxdo.js
 // ==/UserScript==
 
 (function() {
