@@ -16,55 +16,53 @@
     'use strict';
 
     // ===== 可调参数（改这里控制滚动速度） =====
-    const SCROLL_STEP = 300;
-    const SCROLL_INTERVAL = 1500;
-    const RELOAD_DELAY = 10000;
+    const SCROLL_STEP = 300;        // 每次滚动像素数，越小越慢
+    const SCROLL_INTERVAL = 1500;   // 滚动间隔(毫秒)，越大越慢
+    const RELOAD_DELAY = 10000;     // 加载失败后等待(毫秒)
+    const RETRY_INTERVAL = 3000;    // 到底后重试点击间隔(毫秒)
     // =====================================
+
+    let scrollTimer = null;
+    let atBottom = false;
 
     function clickRandomTitle() {
         const titles = document.getElementsByClassName('title raw-link raw-topic-link');
         if (titles.length > 0) {
+            atBottom = false;
             titles[Math.floor(Math.random() * titles.length)].click();
         }
     }
 
-    let timer = null;
-    let atBottom = false;
-
-    function scroll() {
-        timer = null;
-        if (atBottom) return;
+    function doScroll() {
+        scrollTimer = null;
 
         const isBottom = window.innerHeight + window.scrollY >= document.body.offsetHeight;
         if (!isBottom) {
+            atBottom = false;
             window.scrollBy(0, SCROLL_STEP);
-            timer = setTimeout(scroll, SCROLL_INTERVAL);
+            scrollTimer = setTimeout(doScroll, SCROLL_INTERVAL);
         } else {
             atBottom = true;
-            const dd = '抱歉，我们无法加载该话题，可能是由于连接问题。请重试。如果问题仍然存在，请告诉我们。';
-            if (document.body.textContent.includes(dd)) {
-                setTimeout(function() { location.href = '/latest'; }, RELOAD_DELAY);
-            } else {
-                clickRandomTitle();
-            }
-        }
-    }
-
-    function onDOMChange() {
-        const isBottom = window.innerHeight + window.scrollY >= document.body.offsetHeight;
-        if (isBottom && atBottom) {
             clickRandomTitle();
-        } else if (!isBottom) {
-            atBottom = false;
-            if (!timer) {
-                timer = setTimeout(scroll, SCROLL_INTERVAL);
-            }
         }
     }
 
-    const observer = new MutationObserver(onDOMChange);
+    // ponytail: 共享 timer guard — MO 或心跳都不会打断正在进行的滚动链.
+    // 滚动到底后 atBottom=true, 不再创建新 timer.
+    function tryScroll() {
+        if (scrollTimer) return;
+        doScroll();
+    }
+
+    function heartbeat() {
+        // ponytail: 话题页 DOM 稳定后 MO 不触发, 心跳保证到底后重试点击
+        if (atBottom) clickRandomTitle();
+    }
+
+    const observer = new MutationObserver(tryScroll);
     observer.observe(document.body, { childList: true, subtree: true });
 
-    scroll();
+    setInterval(heartbeat, RETRY_INTERVAL);
+    tryScroll();
 
 })();
