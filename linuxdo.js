@@ -42,11 +42,13 @@
     let scrollTimer = null;
 
     function scheduleScroll() {
-        if (scrollTimer) clearTimeout(scrollTimer);
+        if (scrollTimer) return; // 有 timer 在跑就别重置，等它自己触发
         scrollTimer = setTimeout(doScroll, SCROLL_INTERVAL);
     }
 
     function doScroll() {
+        scrollTimer = null; // timeout 触发，清标记
+
         const isBottom = window.innerHeight + window.scrollY >= document.body.offsetHeight;
         if (!isBottom) {
             window.scrollBy(0, SCROLL_STEP);
