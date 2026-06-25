@@ -16,60 +16,55 @@
     'use strict';
 
     // ===== 可调参数（改这里控制滚动速度） =====
-    const SCROLL_STEP = 300; // 每次滚动像素数，越小越慢
-    const SCROLL_INTERVAL = 1500; // 滚动间隔(毫秒)，越大越慢
-    const RELOAD_DELAY = 10000; // 加载失败后等待(毫秒)
+    const SCROLL_STEP = 300;
+    const SCROLL_INTERVAL = 1500;
+    const RELOAD_DELAY = 10000;
     // =====================================
-
-    function waitSomeSeconds() {
-        setTimeout(function() {
-            console.log('10秒钟已过！');
-            window.location.href = "/latest";
-        }, RELOAD_DELAY);
-    }
 
     function clickRandomTitle() {
         const titles = document.getElementsByClassName('title raw-link raw-topic-link');
         if (titles.length > 0) {
-            const randomIndex = Math.floor(Math.random() * titles.length);
-            titles[randomIndex].click();
-        } else {
-            console.log('No elements found with the specified class names.');
+            titles[Math.floor(Math.random() * titles.length)].click();
         }
     }
 
-    let scrollTimer = null;
-    let scrolling = false;
+    let timer = null;
+    let atBottom = false;
 
-    function startScroll() {
-        if (scrollTimer) clearTimeout(scrollTimer);
-        scrolling = true;
+    function scroll() {
+        timer = null;
+        if (atBottom) return;
 
         const isBottom = window.innerHeight + window.scrollY >= document.body.offsetHeight;
         if (!isBottom) {
             window.scrollBy(0, SCROLL_STEP);
-            scrollTimer = setTimeout(startScroll, SCROLL_INTERVAL);
+            timer = setTimeout(scroll, SCROLL_INTERVAL);
         } else {
-            scrolling = false;
+            atBottom = true;
             const dd = '抱歉，我们无法加载该话题，可能是由于连接问题。请重试。如果问题仍然存在，请告诉我们。';
             if (document.body.textContent.includes(dd)) {
-                waitSomeSeconds();
+                setTimeout(function() { location.href = '/latest'; }, RELOAD_DELAY);
             } else {
                 clickRandomTitle();
-                console.log("Reached the bottom of the page.");
             }
         }
     }
 
-    // 监听DOM变化 — 滚动中不打断, 到底后或空闲时重启滚动/重试点击
-    const observer = new MutationObserver(() => {
-        if (scrolling) return;
-        if (scrollTimer) clearTimeout(scrollTimer);
-        scrollTimer = setTimeout(startScroll, SCROLL_INTERVAL);
-    });
+    function onDOMChange() {
+        const isBottom = window.innerHeight + window.scrollY >= document.body.offsetHeight;
+        if (isBottom && atBottom) {
+            clickRandomTitle();
+        } else if (!isBottom) {
+            atBottom = false;
+            if (!timer) {
+                timer = setTimeout(scroll, SCROLL_INTERVAL);
+            }
+        }
+    }
 
-    // 油猴脚本在 document-end 运行, DOM 已就绪
+    const observer = new MutationObserver(onDOMChange);
     observer.observe(document.body, { childList: true, subtree: true });
-    startScroll();
+
+    scroll();
 
 })();
