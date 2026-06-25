@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         linux.do看帖懒人神器
 // @namespace
-// @version      1.4.0
+// @version      1.5.0
 // @description  帮你点开新帖子，帮你从上到下滑动，帮你选择下一个看的帖子。
 // @author
 // @match        https://linux.do/*
@@ -39,44 +39,37 @@
     }
 
     let scrollTimer = null;
-    let atBottom = false;
+    let scrolling = false;
 
-    function scheduleScroll() {
-        // ponytail: 滚动中 guard, 到底后允许 MutationObserver 重置 timer 重试点击.
-        if (scrollTimer && !atBottom) return;
+    function startScroll() {
         if (scrollTimer) clearTimeout(scrollTimer);
-        scrollTimer = setTimeout(tick, SCROLL_INTERVAL);
-    }
-
-    function tick() {
-        scrollTimer = null;
+        scrolling = true;
 
         const isBottom = window.innerHeight + window.scrollY >= document.body.offsetHeight;
         if (!isBottom) {
-            atBottom = false;
             window.scrollBy(0, SCROLL_STEP);
-            scheduleScroll();
+            scrollTimer = setTimeout(startScroll, SCROLL_INTERVAL);
         } else {
-            atBottom = true;
+            scrolling = false;
             const dd = '抱歉，我们无法加载该话题，可能是由于连接问题。请重试。如果问题仍然存在，请告诉我们。';
             if (document.body.textContent.includes(dd)) {
                 waitSomeSeconds();
             } else {
                 clickRandomTitle();
-                // ponytail: tick 不自循环, 靠 MutationObserver 在懒加载后触发重试.
+                console.log("Reached the bottom of the page.");
             }
         }
     }
 
+    // 监听DOM变化 — 滚动中不打断, 到底后或空闲时重启滚动/重试点击
     const observer = new MutationObserver(() => {
-        if (atBottom) {
-            clickRandomTitle(); // 到底后直接重试, 不打扰滚动 timer
-        } else {
-            scheduleScroll();
-        }
+        if (scrolling) return;
+        if (scrollTimer) clearTimeout(scrollTimer);
+        scrollTimer = setTimeout(startScroll, SCROLL_INTERVAL);
     });
 
+    // 油猴脚本在 document-end 运行, DOM 已就绪
     observer.observe(document.body, { childList: true, subtree: true });
-    tick();
+    startScroll();
 
 })();
