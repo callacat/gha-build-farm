@@ -41,13 +41,16 @@
 
     let scrollTimer = null;
 
-    function startScroll() {
+    function scheduleScroll() {
         if (scrollTimer) clearTimeout(scrollTimer);
+        scrollTimer = setTimeout(doScroll, SCROLL_INTERVAL);
+    }
 
+    function doScroll() {
         const isBottom = window.innerHeight + window.scrollY >= document.body.offsetHeight;
         if (!isBottom) {
             window.scrollBy(0, SCROLL_STEP);
-            scrollTimer = setTimeout(startScroll, SCROLL_INTERVAL);
+            scheduleScroll();
         } else {
             const dd = '抱歉，我们无法加载该话题，可能是由于连接问题。请重试。如果问题仍然存在，请告诉我们。';
             if (document.body.textContent.includes(dd)) {
@@ -59,13 +62,14 @@
         }
     }
 
+    // 监听DOM变化 → 内容懒加载后仅重启计时器，不立即滚动
     const observer = new MutationObserver(() => {
-        startScroll();
+        scheduleScroll();
     });
 
     document.addEventListener('DOMContentLoaded', () => {
         observer.observe(document.body, { childList: true, subtree: true });
-        startScroll();
+        doScroll();
     });
 
 })();
