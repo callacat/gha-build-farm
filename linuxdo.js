@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         linux.do看帖懒人神器
 // @namespace    
-// @version      1.2.0
+// @version      1.3.0
 // @description  帮你点开新帖子，帮你从上到下滑动，帮你选择下一个看的帖子。
 // @author       
 // @match        https://linux.do/*
