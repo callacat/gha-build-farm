@@ -1,0 +1,238 @@
+name: 红果短剧 去强制更新
+run-name: HG Mod — ${{ inputs.workflow || 'analysis' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      workflow:
+        description: '分析(analysis) 或 打补丁(patch)'
+        required: true
+        default: 'analysis'
+        type: choice
+        options:
+          - analysis
+          - patch
+
+env:
+  APK_URL: "https://cloud.dsdog.tk/d/google/%E5%AE%89%E5%8D%93/%E5%BD%B1%E9%9F%B3%E8%A7%86%E5%90%AC/H%E6%9E%9C%E5%85%8D%E8%B4%B9%E7%9F%AD%E5%89%A7_7.2.7.32(72732)-%E4%BC%9A%E5%91%98%E7%BA%AF%E5%87%80%E4%BF%AE%E5%A4%8D%E7%89%88.apk?sign=XpRzLWaxNsoAsszxIlnpMRqoh5-3cJxap3ZDqlXcoaM=:0"
+
+jobs:
+  analyze:
+    if: ${{ inputs.workflow == 'analysis' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Install jadx + apktool
+        run: |
+          curl -sL "https://github.com/skylot/jadx/releases/download/v1.5.5/jadx-1.5.5.zip" -o /tmp/jadx.zip
+          unzip -q /tmp/jadx.zip -d /opt/jadx && chmod +x /opt/jadx/bin/jadx
+          curl -sL "https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar" -o /opt/apktool.jar
+          printf '#!/bin/bash\njava -jar /opt/apktool.jar "$@"\n' > /opt/apktool && chmod +x /opt/apktool
+
+      - name: Download APK
+        run: |
+          curl -sL --max-time 300 "$APK_URL" -o /tmp/hg.apk
+          ls -lh /tmp/hg.apk
+          file /tmp/hg.apk
+
+      - name: jadx decompile (Java)
+        run: |
+          mkdir -p /tmp/jadx_out
+          timeout 180 /opt/jadx/bin/jadx --show-bad-code -d /tmp/jadx_out /tmp/hg.apk 2>&1 | tail -5
+          echo "=== Java files ==="
+          find /tmp/jadx_out -name '*.java' | wc -l
+
+      - name: apktool decode
+        run: |
+          /opt/apktool d /tmp/hg.apk -o /tmp/apktool_out -f 2>&1 | tail -3
+          echo "=== smali files ==="
+          find /tmp/apktool_out -name '*.smali' | wc -l
+
+      - name: 1. Package info
+        run: |
+          echo "=== Package ==="
+          grep -m1 'package=' /tmp/apktool_out/AndroidManifest.xml
+          echo "=== Main Activity ==="
+          grep -A2 'MAIN' /tmp/apktool_out/AndroidManifest.xml | head -10
+          echo "=== Version ==="
+          grep 'version\(Name\|Code\)' /tmp/apktool_out/AndroidManifest.xml
+
+      - name: 2. Find update-related activities/receivers
+        run: |
+          echo "=== UPDATE IN MANIFEST ==="
+          grep -n -i 'update\|check.*version\|Upgrade\|ota' /tmp/apktool_out/AndroidManifest.xml 2>/dev/null || echo "(none)"
+          echo ""
+          echo "=== UPDATE ACTIVITIES ==="
+          grep -B1 -A5 'name=.*[Uu]pdate\|name=.*[Uu]pgrade\|name=.*[Vv]ersion\|name=.*[Cc]heck' /tmp/apktool_out/AndroidManifest.xml 2>/dev/null | head -40
+
+      - name: 3. Search update smali patterns
+        run: |
+          echo "=== forceUpdate / mustUpdate / needUpdate ==="
+          grep -rn 'forceUpdate\|force_update\|mustUpdate\|needUpdate\|shouldUpdate\|isUpdate\|checkUpdate\|doUpdate' /tmp/apktool_out/smali* --include='*.smali' 2>/dev/null | head -30
+          echo ""
+          echo "=== Dialog / Alert in update context ==="
+          grep -rn 'AlertDialog\|Builder\|setCancelable\|setPositiveButton\|setNegativeButton' /tmp/apktool_out/smali* --include='*.smali' 2>/dev/null | grep -i -B3 'update\|version\|force' | head -30
+          echo ""
+          echo "=== Version check ==="
+          grep -rn 'getVersionCode\|getVersionName\|VersionName\|VersionCode' /tmp/apktool_out/smali* --include='*.smali' 2>/dev/null | head -20
+
+      - name: 4. Search update Java patterns
+        run: |
+          echo "=== Update-related Java classes ==="
+          find /tmp/jadx_out -name '*Update*' -o -name '*Upgrade*' -o -name '*VersionCheck*' 2>/dev/null | head -20
+          echo ""
+          echo "=== force keyword in Java ==="
+          grep -rn 'force' /tmp/jadx_out --include='*.java' 2>/dev/null | grep -i 'update\|version\|dialog\|upgrade' | head -20
+          echo ""
+          echo "=== Cancelable false / force dialog ==="
+          grep -rn 'setCancelable.*false\|setCanceledOnTouchOutside.*false' /tmp/jadx_out --include='*.java' 2>/dev/null | head -15
+
+      - name: 5. Find the app package name and main module
+        run: |
+          PKG=$(grep -m1 'package=' /tmp/apktool_out/AndroidManifest.xml | sed 's/.*package="//;s/".*//')
+          echo "Package: $PKG"
+          echo ""
+          echo "=== App Application class ==="
+          APP=$(grep -m1 'android:name="' /tmp/apktool_out/AndroidManifest.xml | head -5 | grep 'application' || true)
+          grep -A1 '<application' /tmp/apktool_out/AndroidManifest.xml | head -5
+          echo ""
+          echo "=== MainActivity ==="
+          grep -A2 'MAIN' /tmp/apktool_out/AndroidManifest.xml | grep -o 'android:name="[^"]*"' 2>/dev/null
+
+      - name: 6. App store / market related (update source)
+        run: |
+          echo "=== App Store / Market URLs ==="
+          grep -rn 'market://\|play.google\|appstore\|AppStore\|app\.xiaomi\|hihonor.*app\|vivo.*market\|oppo.*market' /tmp/jadx_out --include='*.java' 2>/dev/null | head -15
+          echo ""
+          echo "=== Download URLs ==="
+          grep -rn 'http.*download\|http.*apk\|http.*update' /tmp/jadx_out --include='*.java' 2>/dev/null | head -15
+
+      - name: 7. Find key activities list
+        run: |
+          echo "=== ALL EXPORTED ACTIVITIES ==="
+          grep -B1 'exported="true"' /tmp/apktool_out/AndroidManifest.xml | grep 'activity\|<activity' | head -30
+          echo ""
+          echo "=== ALL RECEIVERS ==="
+          grep -B1 'exported="true"' /tmp/apktool_out/AndroidManifest.xml | grep 'receiver\|<receiver' | head -20
+
+      - name: Extract key update smali files
+        run: |
+          mkdir -p /tmp/key-files
+          PKG=$(grep -m1 'package=' /tmp/apktool_out/AndroidManifest.xml | sed 's/.*package="//;s/".*//')
+          PKG_PATH=$(echo "$PKG" | tr '.' '/')
+          
+          echo "=== Main package smali output ==="
+          find /tmp/apktool_out/smali*/$PKG_PATH -name '*Update*' -o -name '*Upgrade*' -o -name '*Version*' 2>/dev/null | head -20 > /tmp/key-files/update-files.txt
+          cat /tmp/key-files/update-files.txt
+          echo ""
+          echo "=== Number of update-related files ==="
+          wc -l /tmp/key-files/update-files.txt
+
+      - name: Upload analysis artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hg-analysis
+          path: |
+            /tmp/jadx_out/
+            /tmp/apktool_out/AndroidManifest.xml
+            /tmp/key-files/
+          compression-level: 3
+          retention-days: 7
+
+      - name: Clean old runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          retain_days: 0
+          keep_minimum_runs: 5
+
+  patch:
+    if: ${{ inputs.workflow == 'patch' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Install jadx + apktool
+        run: |
+          curl -sL "https://github.com/skylot/jadx/releases/download/v1.5.5/jadx-1.5.5.zip" -o /tmp/jadx.zip
+          unzip -q /tmp/jadx.zip -d /opt/jadx && chmod +x /opt/jadx/bin/jadx
+          curl -sL "https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar" -o /opt/apktool.jar
+          printf '#!/bin/bash\njava -jar /opt/apktool.jar "$@"\n' > /opt/apktool && chmod +x /opt/apktool
+
+      - name: Install apksigner + zipalign
+        run: |
+          curl -sL -o /tmp/android-tools.zip "https://dl.google.com/android/repository/commandlinetools-linux-12239219_latest.zip"
+          unzip -q /tmp/android-tools.zip -d /opt/android-sdk 2>/dev/null
+          mkdir -p /opt/android-sdk/cmdline-tools/latest
+          mv /opt/android-sdk/cmdline-tools/* /opt/android-sdk/cmdline-tools/latest/ 2>/dev/null || true
+          yes | /opt/android-sdk/cmdline-tools/latest/bin/sdkmanager "build-tools;35.0.0" 2>&1 | tail -3 || true
+          # fallback
+          which apksigner 2>/dev/null || echo "using alternative sign method"
+
+      - name: Download APK
+        run: |
+          curl -sL --max-time 300 "$APK_URL" -o /tmp/hg.apk
+          ls -lh /tmp/hg.apk
+
+      - name: apktool decode
+        run: |
+          /opt/apktool d /tmp/hg.apk -o /tmp/apktool_out -f 2>&1 | tail -3
+
+      - name: Find update button ids for disabling
+        run: |
+          # Will be populated after analysis
+          echo "update_keyword_files:" > /tmp/patch-plan.txt
+          grep -rn 'force\|update\|version' /tmp/apktool_out/AndroidManifest.xml 2>/dev/null | head -10 >> /tmp/patch-plan.txt
+          echo "" >> /tmp/patch-plan.txt
+          echo "PATCH_PLACEHOLDER - edit me before running patch" >> /tmp/patch-plan.txt
+
+      - name: Rebuild APK
+        run: |
+          /opt/apktool b /tmp/apktool_out -o /tmp/hg-modified.apk 2>&1 | tail -5
+          ls -lh /tmp/hg-modified.apk
+
+      - name: Sign APK (debug key)
+        run: |
+          # Generate debug keystore
+          keytool -genkey -v -keystore /tmp/debug.keystore -alias androiddebugkey \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass android -keypass android \
+            -dname "CN=Android Debug, O=Android, C=US" 2>/dev/null
+            
+          # Try apksigner
+          if command -v apksigner &>/dev/null; then
+            apksigner sign --ks /tmp/debug.keystore --ks-pass pass:android \
+              --ks-key-alias androiddebugkey --key-pass pass:android \
+              /tmp/hg-modified.apk
+          else
+            # Use jarsigner fallback
+            jarsigner -verbose -sigalg SHA1withRSA -digestalg SHA1 \
+              -keystore /tmp/debug.keystore -storepass android -keypass android \
+              /tmp/hg-modified.apk androiddebugkey 2>&1 | tail -3
+          fi
+          echo ""
+          ls -lh /tmp/hg-modified.apk
+
+      - name: Upload patched APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: hg-patched
+          path: /tmp/hg-modified.apk
+          compression-level: 0
+          retention-days: 30
+
+      - name: Clean old runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          retain_days: 0
+          keep_minimum_runs: 5
