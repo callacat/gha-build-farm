@@ -43,3 +43,10 @@ jobs:
           name: triage-output
           path: /tmp/jadx-output
           retention-days: 7
+
+      - name: Clean old runs
+        if: always()
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          retain_days: 0
+          keep_minimum_runs: 10
