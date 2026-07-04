@@ -169,13 +169,17 @@ jobs:
           curl -sL "https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar" -o /opt/apktool.jar
           printf '#!/bin/bash\njava -jar /opt/apktool.jar "$@"\n' > /opt/apktool && chmod +x /opt/apktool
 
-      - name: Install signing tools
+      - name: Install signing tools & aapt2
         run: |
-          # jarsigner is included with JDK
           keytool -genkey -v -keystore /tmp/debug.keystore -alias androiddebugkey \
             -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass android -keypass android \
             -dname "CN=Android Debug, O=Android, C=US" 2>/dev/null
+          # Modern aapt2 for sdk35 — put in PATH ahead of apktool's bundled one
+          curl -sL -o /tmp/aapt2.zip "https://dl.google.com/dl/android/maven2/com/android/tools/build/aapt2/8.7.3-12006047/aapt2-8.7.3-12006047-linux.zip"
+          unzip -q -o /tmp/aapt2.zip -d /opt/new-aapt2 && chmod +x /opt/new-aapt2/aapt2
+          echo "/opt/new-aapt2" >> $GITHUB_PATH
+          echo "AAPT2: $(/opt/new-aapt2/aapt2 version)"
 
       - name: Download APK
         run: |
@@ -191,8 +195,7 @@ jobs:
 
       - name: Rebuild APK
         run: |
-          # --no-res: skip resource recompilation (aapt2 can't handle sdk35)
-          /opt/apktool b /tmp/apktool_out -o /tmp/hg-modified.apk --no-res 2>&1 | tail -10
+          /opt/apktool b /tmp/apktool_out -o /tmp/hg-modified.apk 2>&1 | tail -10
           ls -lh /tmp/hg-modified.apk
 
       - name: Sign APK (debug key)
