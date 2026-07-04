@@ -34,7 +34,7 @@ def comment_out_lines(path, markers):
         else:
             new.append(l)
     if hit:
-        path.writelines(new)
+        path.write_text("".join(new))
         CHANGES += 1
 
 def find_smali_files(pat):
