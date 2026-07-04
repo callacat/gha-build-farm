@@ -175,11 +175,12 @@ jobs:
             -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass android -keypass android \
             -dname "CN=Android Debug, O=Android, C=US" 2>/dev/null
-          # Modern aapt2 for sdk35 — put in PATH ahead of apktool's bundled one
+          # Modern aapt2 for sdk35
           curl -sL -o /tmp/aapt2.zip "https://dl.google.com/dl/android/maven2/com/android/tools/build/aapt2/8.7.3-12006047/aapt2-8.7.3-12006047-linux.zip"
-          unzip -q -o /tmp/aapt2.zip -d /opt/new-aapt2 && chmod +x /opt/new-aapt2/aapt2
-          echo "/opt/new-aapt2" >> $GITHUB_PATH
-          echo "AAPT2: $(/opt/new-aapt2/aapt2 version)"
+          unzip -q -o /tmp/aapt2.zip -d /tmp
+          chmod +x /tmp/aapt2
+          echo "AAPT2=/tmp/aapt2" >> $GITHUB_ENV
+          /tmp/aapt2 version
 
       - name: Download APK
         run: |
