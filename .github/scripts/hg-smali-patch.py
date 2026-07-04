@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""红果短剧 去强制更新 — 只改 smali，资源不动"""
+"""红果短剧 去强制更新 — 纯 smali 修改，不碰 manifest 和资源"""
 import re, sys
 from pathlib import Path
 
@@ -11,9 +11,10 @@ def replace_in(path, olds, new):
     if not path.is_file(): return
     t = path.read_text("utf-8", errors="replace")
     for old in olds:
-        if old in t and t.count(old) > 0:
+        if old in t:
             t = t.replace(old, new)
             CHANGES += 1
+            print(f"  PATCH {path.relative_to(APK)}: {old[:50]}")
     path.write_text(t)
 
 def find(pat):
@@ -38,23 +39,20 @@ for f in find("PopDefiner*.smali"):
 # ===== 3. Disable update methods by patching return values =====
 for f in find("*.smali"):
     r = str(f.relative_to(APK))
-    # Force-return false in check methods
     if "checkUpdate" in r or "ForceUpdate" in r:
         replace_in(f, ["const/4 v0, 0x1", "const/4 v1, 0x1"], "const/4 v0, 0x0")
 
-# ===== 4. Disable UpdateProgressActivity by patching onCreate =====
-for f in find("UpdateProgressActivity.smali"):
-    replace_in(f, [
-        "invoke-super",  # first thing in onCreate becomes return
-        "invoke-direct",
-    ], "# patched")
-
-# ===== 5. PushImpl forceUpdate =====
+# ===== 4. PushImpl forceUpdate =====
 for f in find("PushImpl.smali"):
-    replace_in(f, ["forceUpdate"], "forceUpdatePATCHED")
-
-# ===== 6. LuckyDog low update dialog =====
-for f in find("LuckyDogLowUpdateDialog.smali"):
-    replace_in(f, ["invoke-super", "invoke-direct"], "# disabled")
+    t = f.read_text("utf-8", errors="replace")
+    lines = t.splitlines(keepends=True)
+    new = []
+    for l in lines:
+        if "forceUpdate" in l and not l.strip().startswith("#"):
+            new.append(f"# {l}")
+        else:
+            new.append(l)
+    f.write_text("".join(new)); CHANGES += 1
+    print(f"  COMMENT forceUpdate in {f.relative_to(APK)}")
 
 print(f"\n=== 补丁完成: {CHANGES} 处修改 ===")
