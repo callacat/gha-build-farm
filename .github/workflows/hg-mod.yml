@@ -50,7 +50,7 @@ jobs:
 
       - name: apktool decode
         run: |
-          /opt/apktool d /tmp/hg.apk -o /tmp/apktool_out -f 2>&1 | tail -3
+          /opt/apktool d /tmp/hg.apk -o /tmp/apktool_out -f --use-aapt2 2>&1 | tail -3
           echo "=== smali files ==="
           find /tmp/apktool_out -name '*.smali' | wc -l
 
@@ -191,7 +191,8 @@ jobs:
 
       - name: Rebuild APK
         run: |
-          /opt/apktool b /tmp/apktool_out -o /tmp/hg-modified.apk 2>&1 | tail -5
+          # --no-res: skip resource recompilation (aapt2 can't handle sdk35)
+          /opt/apktool b /tmp/apktool_out -o /tmp/hg-modified.apk --no-res 2>&1 | tail -10
           ls -lh /tmp/hg-modified.apk
 
       - name: Sign APK (debug key)
