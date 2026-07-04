@@ -57,11 +57,11 @@ jobs:
       - name: 1. Package info
         run: |
           echo "=== Package ==="
-          grep -m1 'package=' /tmp/apktool_out/AndroidManifest.xml
+          grep -m1 'package=' /tmp/apktool_out/AndroidManifest.xml || true
           echo "=== Main Activity ==="
-          grep -A2 'MAIN' /tmp/apktool_out/AndroidManifest.xml | head -10
+          grep -A2 'MAIN' /tmp/apktool_out/AndroidManifest.xml | head -10 || true
           echo "=== Version ==="
-          grep 'version\(Name\|Code\)' /tmp/apktool_out/AndroidManifest.xml
+          grep -oP 'version(?:Name|Code)="[^"]*"' /tmp/apktool_out/AndroidManifest.xml || true
 
       - name: 2. Find update-related activities/receivers
         run: |
@@ -103,7 +103,7 @@ jobs:
           grep -A1 '<application' /tmp/apktool_out/AndroidManifest.xml | head -5
           echo ""
           echo "=== MainActivity ==="
-          grep -A2 'MAIN' /tmp/apktool_out/AndroidManifest.xml | grep -o 'android:name="[^"]*"' 2>/dev/null
+          grep -A2 'MAIN' /tmp/apktool_out/AndroidManifest.xml | grep -o 'android:name="[^"]*"' 2>/dev/null || true
 
       - name: 6. App store / market related (update source)
         run: |
@@ -116,10 +116,10 @@ jobs:
       - name: 7. Find key activities list
         run: |
           echo "=== ALL EXPORTED ACTIVITIES ==="
-          grep -B1 'exported="true"' /tmp/apktool_out/AndroidManifest.xml | grep 'activity\|<activity' | head -30
+          grep -B1 'exported="true"' /tmp/apktool_out/AndroidManifest.xml | grep -E 'activity|<activity' | head -30 || true
           echo ""
           echo "=== ALL RECEIVERS ==="
-          grep -B1 'exported="true"' /tmp/apktool_out/AndroidManifest.xml | grep 'receiver\|<receiver' | head -20
+          grep -B1 'exported="true"' /tmp/apktool_out/AndroidManifest.xml | grep -E 'receiver|<receiver' | head -20 || true
 
       - name: Extract key update smali files
         run: |
