@@ -169,32 +169,28 @@ jobs:
           curl -sL "https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar" -o /opt/apktool.jar
           printf '#!/bin/bash\njava -jar /opt/apktool.jar "$@"\n' > /opt/apktool && chmod +x /opt/apktool
 
-      - name: Install signing tools & aapt2
+      - name: Install signing tools
         run: |
           keytool -genkey -v -keystore /tmp/debug.keystore -alias androiddebugkey \
             -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass android -keypass android \
             -dname "CN=Android Debug, O=Android, C=US" 2>/dev/null
-          # Use system aapt2 (available on ubuntu-22.04)
-          sudo apt-get update -qq && sudo apt-get install -y -qq aapt2 2>&1 | tail -1
-          echo "AAPT2=$(which aapt2)" >> $GITHUB_ENV
-          aapt2 version
 
       - name: Download APK
         run: |
           curl -sL --max-time 300 "$APK_URL" -o /tmp/hg.apk
           ls -lh /tmp/hg.apk
 
-      - name: apktool decode
+      - name: apktool decode (no resources)
         run: |
-          /opt/apktool d /tmp/hg.apk -o /tmp/apktool_out -f 2>&1 | tail -3
+          /opt/apktool d /tmp/hg.apk -o /tmp/apktool_out -f -r 2>&1 | tail -3
 
       - name: Apply smali patches
         run: python3 .github/scripts/hg-smali-patch.py /tmp/apktool_out
 
-      - name: Rebuild APK
+      - name: Rebuild APK (copy resources, no aapt2)
         run: |
-          /opt/apktool b /tmp/apktool_out -o /tmp/hg-modified.apk 2>&1 | tail -10
+          /opt/apktool b /tmp/apktool_out -o /tmp/hg-modified.apk -c 2>&1 | tail -10
           ls -lh /tmp/hg-modified.apk
 
       - name: Sign APK (debug key)
