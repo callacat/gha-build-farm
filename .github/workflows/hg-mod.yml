@@ -175,12 +175,10 @@ jobs:
             -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass android -keypass android \
             -dname "CN=Android Debug, O=Android, C=US" 2>/dev/null
-          # Modern aapt2 for sdk35
-          curl -sL -o /tmp/aapt2.zip "https://dl.google.com/dl/android/maven2/com/android/tools/build/aapt2/8.7.3-12006047/aapt2-8.7.3-12006047-linux.zip"
-          unzip -q -o /tmp/aapt2.zip -d /tmp
-          chmod +x /tmp/aapt2
-          echo "AAPT2=/tmp/aapt2" >> $GITHUB_ENV
-          /tmp/aapt2 version
+          # Use system aapt2 (available on ubuntu-22.04)
+          sudo apt-get update -qq && sudo apt-get install -y -qq aapt2 2>&1 | tail -1
+          echo "AAPT2=$(which aapt2)" >> $GITHUB_ENV
+          aapt2 version
 
       - name: Download APK
         run: |
