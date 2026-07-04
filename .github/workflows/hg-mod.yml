@@ -169,15 +169,13 @@ jobs:
           curl -sL "https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar" -o /opt/apktool.jar
           printf '#!/bin/bash\njava -jar /opt/apktool.jar "$@"\n' > /opt/apktool && chmod +x /opt/apktool
 
-      - name: Install apksigner + zipalign
+      - name: Install signing tools
         run: |
-          curl -sL -o /tmp/android-tools.zip "https://dl.google.com/android/repository/commandlinetools-linux-12239219_latest.zip"
-          unzip -q /tmp/android-tools.zip -d /opt/android-sdk 2>/dev/null
-          mkdir -p /opt/android-sdk/cmdline-tools/latest
-          mv /opt/android-sdk/cmdline-tools/* /opt/android-sdk/cmdline-tools/latest/ 2>/dev/null || true
-          yes | /opt/android-sdk/cmdline-tools/latest/bin/sdkmanager "build-tools;35.0.0" 2>&1 | tail -3 || true
-          # fallback
-          which apksigner 2>/dev/null || echo "using alternative sign method"
+          # jarsigner is included with JDK
+          keytool -genkey -v -keystore /tmp/debug.keystore -alias androiddebugkey \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass android -keypass android \
+            -dname "CN=Android Debug, O=Android, C=US" 2>/dev/null
 
       - name: Download APK
         run: |
@@ -198,24 +196,9 @@ jobs:
 
       - name: Sign APK (debug key)
         run: |
-          # Generate debug keystore
-          keytool -genkey -v -keystore /tmp/debug.keystore -alias androiddebugkey \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -storepass android -keypass android \
-            -dname "CN=Android Debug, O=Android, C=US" 2>/dev/null
-            
-          # Try apksigner
-          if command -v apksigner &>/dev/null; then
-            apksigner sign --ks /tmp/debug.keystore --ks-pass pass:android \
-              --ks-key-alias androiddebugkey --key-pass pass:android \
-              /tmp/hg-modified.apk
-          else
-            # Use jarsigner fallback
-            jarsigner -verbose -sigalg SHA1withRSA -digestalg SHA1 \
-              -keystore /tmp/debug.keystore -storepass android -keypass android \
-              /tmp/hg-modified.apk androiddebugkey 2>&1 | tail -3
-          fi
-          echo ""
+          jarsigner -verbose -sigalg SHA1withRSA -digestalg SHA1 \
+            -keystore /tmp/debug.keystore -storepass android -keypass android \
+            /tmp/hg-modified.apk androiddebugkey 2>&1 | tail -3
           ls -lh /tmp/hg-modified.apk
 
       - name: Upload patched APK
