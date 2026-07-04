@@ -188,13 +188,8 @@ jobs:
         run: |
           /opt/apktool d /tmp/hg.apk -o /tmp/apktool_out -f 2>&1 | tail -3
 
-      - name: Find update button ids for disabling
-        run: |
-          # Will be populated after analysis
-          echo "update_keyword_files:" > /tmp/patch-plan.txt
-          grep -rn 'force\|update\|version' /tmp/apktool_out/AndroidManifest.xml 2>/dev/null | head -10 >> /tmp/patch-plan.txt
-          echo "" >> /tmp/patch-plan.txt
-          echo "PATCH_PLACEHOLDER - edit me before running patch" >> /tmp/patch-plan.txt
+      - name: Apply smali patches
+        run: python3 .github/scripts/hg-smali-patch.py /tmp/apktool_out
 
       - name: Rebuild APK
         run: |
