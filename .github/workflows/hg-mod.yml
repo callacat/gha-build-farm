@@ -193,24 +193,25 @@ jobs:
 
       - name: Rebuild APK
         run: |
-          /opt/apktool b /tmp/apktool_out -o /tmp/hg-unsigned.apk --use-aapt2 2>&1 | tail -10
+          /opt/apktool b /tmp/apktool_out -o /tmp/hg-unsigned.apk --copy-original 2>&1 | tail -10
           ls -lh /tmp/hg-unsigned.apk
 
-      - name: Sign APK (v2/v3)
+      - name: Sign APK (v2/v3 zipalign + apksigner)
         run: |
           SDK=/usr/local/lib/android/sdk; [ -d "$SDK" ] || SDK=$ANDROID_HOME
           BT=$(find "$SDK/build-tools" -maxdepth 1 -type d | sort -Vr | head -1)
 
           # Strip old signatures (from --copy-original)
           zip -d /tmp/hg-unsigned.apk 'META-INF/BYTESIGN*' 'META-INF/ANDROIDD*' 2>/dev/null || true
-
-          # zipalign + apksigner v2/v3
+          # zipalign
           $BT/zipalign -v -p 4 /tmp/hg-unsigned.apk /tmp/hg-aligned.apk 2>&1 | tail -2
+          # apksigner v2/v3
           $BT/apksigner sign --ks /tmp/debug.keystore --ks-pass pass:android \
             --ks-key-alias androiddebugkey \
             --v2-signing-enabled true --v3-signing-enabled true \
             --out /tmp/hg-modified.apk /tmp/hg-aligned.apk 2>&1 | tail -5
           $BT/apksigner verify --verbose /tmp/hg-modified.apk 2>&1 | head -15
+          ls -lh /tmp/hg-modified.apk
 
       - name: Upload patched APK
         uses: actions/upload-artifact@v4
