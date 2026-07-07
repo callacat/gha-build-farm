@@ -196,11 +196,28 @@ jobs:
           /opt/apktool b /tmp/apktool_out -o /tmp/hg-modified.apk --copy-original 2>&1 | tail -10
           ls -lh /tmp/hg-modified.apk
 
-      - name: Sign APK (debug key)
+      - name: Sign APK (v2/v3 with zipalign + apksigner)
         run: |
-          jarsigner -verbose -sigalg SHA1withRSA -digestalg SHA1 \
-            -keystore /tmp/debug.keystore -storepass android -keypass android \
-            /tmp/hg-modified.apk androiddebugkey 2>&1 | tail -3
+          # Set up SDK tools path
+          SDK=/usr/local/lib/android/sdk
+          if [ ! -d "$SDK" ]; then SDK=$ANDROID_HOME; fi
+          if [ ! -d "$SDK" ]; then SDK=$ANDROID_SDK_ROOT; fi
+          BT=$SDK/build-tools/35.0.0
+          if [ ! -d "$BT" ]; then BT=$(find "$SDK/build-tools" -name "aapt2" -printf "%h\n" | head -1); fi
+          echo "SDK: $SDK, BuildTools: $BT"
+
+          # zipalign first (required for v2 signature)
+          $BT/zipalign -v -p 4 /tmp/hg-modified.apk /tmp/hg-aligned.apk 2>&1 | tail -3
+          mv /tmp/hg-aligned.apk /tmp/hg-modified.apk
+
+          # Sign with apksigner (v1+v2+v3)
+          $BT/apksigner sign --ks /tmp/debug.keystore --ks-pass pass:android \
+            --ks-key-alias androiddebugkey --key-pass pass:android \
+            --v2-signing-enabled true --v3-signing-enabled true \
+            /tmp/hg-modified.apk 2>&1 | tail -3
+
+          # Verify signature
+          $BT/apksigner verify --verbose /tmp/hg-modified.apk 2>&1 | head -20
           ls -lh /tmp/hg-modified.apk
 
       - name: Upload patched APK
