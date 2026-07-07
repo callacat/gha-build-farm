@@ -191,34 +191,26 @@ jobs:
       - name: Apply smali patches
         run: python3 .github/scripts/hg-smali-patch.py /tmp/apktool_out
 
-      - name: Rebuild APK (copy original resources)
+      - name: Rebuild APK
         run: |
-          /opt/apktool b /tmp/apktool_out -o /tmp/hg-modified.apk --copy-original 2>&1 | tail -10
-          ls -lh /tmp/hg-modified.apk
+          /opt/apktool b /tmp/apktool_out -o /tmp/hg-unsigned.apk --use-aapt2 2>&1 | tail -10
+          ls -lh /tmp/hg-unsigned.apk
 
-      - name: Sign APK (v2/v3 with zipalign + apksigner)
+      - name: Sign APK (v2/v3)
         run: |
-          # Set up SDK tools path
-          SDK=/usr/local/lib/android/sdk
-          if [ ! -d "$SDK" ]; then SDK=$ANDROID_HOME; fi
-          if [ ! -d "$SDK" ]; then SDK=$ANDROID_SDK_ROOT; fi
-          BT=$SDK/build-tools/35.0.0
-          if [ ! -d "$BT" ]; then BT=$(find "$SDK/build-tools" -name "aapt2" -printf "%h\n" | head -1); fi
-          echo "SDK: $SDK, BuildTools: $BT"
+          SDK=/usr/local/lib/android/sdk; [ -d "$SDK" ] || SDK=$ANDROID_HOME
+          BT=$(find "$SDK/build-tools" -maxdepth 1 -type d | sort -Vr | head -1)
 
-          # zipalign first (required for v2 signature)
-          $BT/zipalign -v -p 4 /tmp/hg-modified.apk /tmp/hg-aligned.apk 2>&1 | tail -3
-          mv /tmp/hg-aligned.apk /tmp/hg-modified.apk
+          # Strip old signatures (from --copy-original)
+          zip -d /tmp/hg-unsigned.apk 'META-INF/BYTESIGN*' 'META-INF/ANDROIDD*' 2>/dev/null || true
 
-          # Sign with apksigner (v1+v2+v3)
+          # zipalign + apksigner v2/v3
+          $BT/zipalign -v -p 4 /tmp/hg-unsigned.apk /tmp/hg-aligned.apk 2>&1 | tail -2
           $BT/apksigner sign --ks /tmp/debug.keystore --ks-pass pass:android \
-            --ks-key-alias androiddebugkey --key-pass pass:android \
+            --ks-key-alias androiddebugkey \
             --v2-signing-enabled true --v3-signing-enabled true \
-            /tmp/hg-modified.apk 2>&1 | tail -3
-
-          # Verify signature
-          $BT/apksigner verify --verbose /tmp/hg-modified.apk 2>&1 | head -20
-          ls -lh /tmp/hg-modified.apk
+            --out /tmp/hg-modified.apk /tmp/hg-aligned.apk 2>&1 | tail -5
+          $BT/apksigner verify --verbose /tmp/hg-modified.apk 2>&1 | head -15
 
       - name: Upload patched APK
         uses: actions/upload-artifact@v4
