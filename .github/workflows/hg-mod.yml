@@ -134,15 +134,15 @@ jobs:
           echo "=== Number of update-related files ==="
           wc -l /tmp/key-files/update-files.txt
 
-      - name: 🎯 Deep analysis — exact update popup trigger
-        run: python3 .github/scripts/hg-deep-analyze.py
+      - name: 🎯 Find modder update popup (hardcoded URLs + quark)
+        run: python3 .github/scripts/hg-find-modder-update.py
 
-      - name: Upload deep analysis
+      - name: Upload analysis result
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: deep-analysis
-          path: /tmp/deep-analysis.txt
+          name: trigger-analysis
+          path: /tmp/trigger-analysis.txt
           compression-level: 2
           retention-days: 7
 
