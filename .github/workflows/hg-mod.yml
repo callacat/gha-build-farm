@@ -126,13 +126,25 @@ jobs:
           mkdir -p /tmp/key-files
           PKG=$(grep -m1 'package=' /tmp/apktool_out/AndroidManifest.xml | sed 's/.*package="//;s/".*//')
           PKG_PATH=$(echo "$PKG" | tr '.' '/')
-          
+
           echo "=== Main package smali output ==="
           find /tmp/apktool_out/smali*/$PKG_PATH -name '*Update*' -o -name '*Upgrade*' -o -name '*Version*' 2>/dev/null | head -20 > /tmp/key-files/update-files.txt
           cat /tmp/key-files/update-files.txt
           echo ""
           echo "=== Number of update-related files ==="
           wc -l /tmp/key-files/update-files.txt
+
+      - name: 🎯 Deep analysis — exact update popup trigger
+        run: python3 .github/scripts/hg-deep-analyze.py
+
+      - name: Upload deep analysis
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deep-analysis
+          path: /tmp/deep-analysis.txt
+          compression-level: 2
+          retention-days: 7
 
       - name: Upload analysis artifact
         uses: actions/upload-artifact@v4
@@ -201,8 +213,8 @@ jobs:
           SDK=/usr/local/lib/android/sdk; [ -d "$SDK" ] || SDK=$ANDROID_HOME
           BT=$(find "$SDK/build-tools" -maxdepth 1 -type d | sort -Vr | head -1)
 
-          # Strip old signatures (from --copy-original)
-          zip -d /tmp/hg-unsigned.apk 'META-INF/BYTESIGN*' 'META-INF/ANDROIDD*' 2>/dev/null || true
+          # Strip old signatures — delete all .SF/.RSA/.MF at root META-INF
+          zip -d /tmp/hg-unsigned.apk 'META-INF/*.SF' 'META-INF/*.RSA' 'META-INF/*.DSA' 'META-INF/MANIFEST.MF' 2>/dev/null || true
           # zipalign
           $BT/zipalign -v -p 4 /tmp/hg-unsigned.apk /tmp/hg-aligned.apk 2>&1 | tail -2
           # apksigner v2/v3
