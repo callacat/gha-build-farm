@@ -1,59 +1,51 @@
 #!/usr/bin/env python3
-"""第一优先:找到含下载URL+弹窗+夸克网盘的类"""
-import re, sys
+"""终极搜索：找出所有自定义 URL 字符串的 smali 文件 — 黑产代码就藏在那里"""
+import re
 from pathlib import Path
 
-JADX = Path("/tmp/jadx_out/")
 APKTOOL = Path("/tmp/apktool_out/")
 
-# Search in Java
-print("=== URL references ===")
-urls_to_find = ["cashdesk", "download", "quark", "夸克", "立即更新", "立即升级"]
-for f in sorted(JADX.rglob("*.java")):
-    r = str(f.relative_to(JADX))
-    if r.startswith("sources/androidx/") or r.startswith("sources/okio/"): continue
-    try:
-        t = f.read_text("utf-8", errors="replace")
-    except: continue
-    for url in urls_to_find:
-        if url in t:
-            lines = t.splitlines()
-            for i, l in enumerate(lines):
-                if url in l:
-                    print(f"  {r}:L{i+1}")
-                    ctx = lines[max(0,i-2):i+1]
-                    for ci, cl in enumerate(ctx, max(0,i-2)):
-                        print(f"    {cl.strip()[:200]}")
-                    print()
-            break  # one marker per file
+# 已知 SDK URL 白名单（排除这些）
+KNOWN_SDK = [
+    "google", "android", "w3.org", "xmlpull", "github", "fqnovel", "snssdk",
+    "bytedance", "zijieapi", "pstatp", "byteimg", "schemas", "maven", "apache",
+    "gradle", "spring", "kotlin", "coroutine", "okhttp", "retrofit", "lynx",
+    "bytegecko", "bytecdn", "bdurl", "toutiao", "amemv", "douyin", "pangle",
+    "alipay", "weibo", "weixin", "taobao", "xiaohongshu", "openmobile",
+    "developer", "byteoversea", "bytedns", "novelquickapp"
+]
 
-# Search AndroidManifest for update-related activities
-print("=== MANIFEST activities ===")
-mf = APKTOOL / "AndroidManifest.xml"
-if mf.is_file():
-    t = mf.read_text("utf-8", errors="replace")
-    for m in re.finditer(r'<activity[^>]*name="([^"]*update[^"]*)"[^>]*>', t, re.I):
-        print(f"  {m.group(1)}")
-    for m in re.finditer(r'<activity[^>]*name="([^"]*Upgrade[^"]*)"[^>]*>', t):
-        print(f"  {m.group(1)}")
-
-# Find all Dialog themed activities in manifest
-print("\n=== Dialog-themed activities (possible popups) ===")
-for m in re.finditer(r'<activity[^>]*theme="[^"]*dialog[^"]*"[^>]*name="([^"]*)"', t, re.I):
-    print(f"  {m.group(1)}")
-
-# Find webview activities  
-print("\n=== WebView activities ===")
-for m in re.finditer(r'<activity[^>]*name="([^"]*WebView[^"]*)"', t):
-    print(f"  {m.group(1)}")
-
-# Search for startActivity / openUrl in update context
-print("\n=== startActivity with download URL ===")
+# 搜索所有 smali 中的 URL 字符串
+print("=== 非 SDK URL（可能是黑产下载地址）===")
 for sd in sorted(APKTOOL.glob("smali*")):
     if not sd.is_dir(): continue
     for f in sd.rglob("*.smali"):
-        r = str(f.relative_to(APKTOOL))
-        if "androidx/" in r: continue
         t = f.read_text("utf-8", errors="replace")
-        if ("download" in t.lower() or "cashdesk" in t) and ("startActivity" in t or "ACTION_VIEW" in t or "openURL" in t):
-            print(f"  {r}")
+        urls = re.findall(r'https?://[a-zA-Z0-9./_-]+', t)
+        for u in urls:
+            if not any(k in u.lower() for k in KNOWN_SDK):
+                r = str(f.relative_to(APKTOOL))
+                print(f"  URL: {u}")
+                print(f"  FILE: {r}")
+                # Print surrounding context
+                idx = t.find(u)
+                start = max(0, t.rfind('\n', 0, idx) - 150)
+                end = min(len(t), t.find('\n', idx) + 1)
+                ctx = t[start:end].strip()
+                print(f"  CTX: ...{ctx[-120:]}")
+                print()
+
+# 搜索夸克/下载相关字符串
+print("=== 'quark' / '夸克' / '立即更新' / 'cashdesk' / 'pan' / '网盘' ===")
+for sd in sorted(APKTOOL.glob("smali*")):
+    if not sd.is_dir(): continue
+    for f in sd.rglob("*.smali"):
+        t = f.read_text("utf-8", errors="replace")
+        for kw in ["quark", "夸克", "cashdesk", "立即更新", "立即升级", "网盘", "pan.baidu", "lanzou", "ct.ghpym"]:
+            if kw in t.lower():
+                r = str(f.relative_to(APKTOOL))
+                for i, l in enumerate(t.splitlines()):
+                    if kw in l.lower():
+                        print(f"  FILE: {r} L{i+1}")
+                        print(f"    {l.strip()[:150]}")
+print("=== 搜索结束 ===")
