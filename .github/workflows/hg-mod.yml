@@ -134,8 +134,8 @@ jobs:
           echo "=== Number of update-related files ==="
           wc -l /tmp/key-files/update-files.txt
 
-      - name: 🎯 Find modder update popup (hardcoded URLs + quark)
-        run: python3 .github/scripts/hg-find-modder-update.py
+      - name: 🔍 Ultimate search — modder URL in smali
+        run: python3 .github/scripts/hg-find-trigger.py
 
       - name: Upload analysis result
         if: always()
