@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""红果短剧 v9 — 版本号注入：阻断所有更新检测"""
+"""红果短剧 v10 — 网络层拦截：毒化更新检测 URL"""
 import re, sys
 from pathlib import Path
 
 APK = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("/tmp/apktool_out")
-FAKE_VERSION = "0x5f5e100"  # 99999999
+POISON_URL = "http://127.0.0.1"
+KEYWORDS = r"(update|upgrade|version|check|force)"
 MODS = 0
 HITS = 0
 
@@ -20,25 +21,24 @@ for sd in sorted(APK.glob("smali*")):
         dirty = False
 
         for i, ln in enumerate(lines):
-            # iget vREG, vREG, Landroid/content/pm/PackageInfo;->versionCode:I
-            # → const vREG, 0x5f5e100
+            # const-string vREG, "http://...update..."
             m = re.search(
-                r'iget\s+(\{[vp\d]+\}|[vp\d]+)\s*,\s*[vp\d]+\s*,\s*Landroid/content/pm/PackageInfo;->versionCode:I',
+                r'const-string\s+([vp\d]+)\s*,\s*"(https?://[^"]*' + KEYWORDS + r'[^"]*)"',
                 ln,
+                re.IGNORECASE,
             )
             if not m:
                 continue
-            # Extract the destination register
-            dst = m.group(1)
-            dst = dst.strip("{}")
+            reg = m.group(1)
+            url = m.group(2)
             indent = re.match(r'^(\s*)', ln).group(1)
-            lines[i] = f"{indent}const {dst}, {FAKE_VERSION}  # versionCode → {FAKE_VERSION}\n"
+            lines[i] = f'{indent}const-string {reg}, "{POISON_URL}"  # poisoned: {url[:40]}...\n'
             dirty = True
             HITS += 1
-            print(f"  {f.relative_to(APK)}:{i+1}  versionCode → {FAKE_VERSION}")
+            print(f"  {f.relative_to(APK)}:{i+1}  毒化 URL: {url[:60]}...")
 
         if dirty:
             f.write_text("".join(lines))
             MODS += 1
 
-print(f"\n=== 补丁完成: {MODS} 个文件, {HITS} 处 versionCode 注入 ===")
+print(f"\n=== 补丁完成: {MODS} 个文件, {HITS} 个 URL 毒化为 {POISON_URL} ===")
