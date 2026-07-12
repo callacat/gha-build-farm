@@ -13,15 +13,21 @@ APK = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("/tmp/apktool_out")
 MODS = 0
 HITS = 0
 
-# ========== 策略 1: DialogFragmentC4433.forceUpdate 硬编码为 false ==========
+# ========== 策略 1: 动态搜索 DialogFragment + forceUpdate 字段 ==========
 target_class = None
 for sd in sorted(APK.glob("smali*")):
     if not sd.is_dir():
         continue
-    # 搜索 DialogFragmentC4433.smali
-    for f in sd.rglob("DialogFragmentC4433.smali"):
-        target_class = f
-        break
+    for f in sd.rglob("*.smali"):
+        try:
+            t = f.read_text("utf-8", errors="replace")
+            # 搜索 DialogFragment 子类 + forceUpdate 字段
+            if (re.search(r'\.super.*DialogFragment', t) and
+                re.search(r'\.field.*forceUpdate:Z', t)):
+                target_class = f
+                break
+        except:
+            continue
     if target_class:
         break
 
