@@ -236,6 +236,9 @@ jobs:
       - name: Search all oneseeker references
         run: bash .github/scripts/hg-search-oneseeker.sh /tmp/apktool_out
 
+      - name: Search resources.arsc and res/ XML
+        run: bash .github/scripts/hg-search-resources.sh /tmp/apktool_out
+
       - name: Rebuild APK
         run: |
           /opt/apktool b /tmp/apktool_out -o /tmp/hg-unsigned.apk --copy-original 2>&1 | tail -10
