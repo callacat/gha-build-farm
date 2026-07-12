@@ -196,17 +196,24 @@ jobs:
           curl -sL --max-time 300 "$APK_URL" -o /tmp/hg.apk
           ls -lh /tmp/hg.apk
 
-      - name: apktool decode (skip resources)
+      - name: apktool decode (FULL - with resources)
         run: |
-          /opt/apktool d /tmp/hg.apk -o /tmp/apktool_out -f -r 2>&1 | tail -3
+          /opt/apktool d /tmp/hg.apk -o /tmp/apktool_out -f --use-aapt2 2>&1 | tail -5
 
-      - name: 🔍 Search "立即更新" dialog in smali
+      - name: 🔍 Search "立即更新" in strings.xml
         run: |
-          echo "=== Files containing '立即更新' ==="
-          grep -rn '立即更新' /tmp/apktool_out/smali* --include='*.smali' | head -50
+          echo "=== String resource containing '立即更新' ==="
+          find /tmp/apktool_out/res -name 'strings.xml' -exec grep -Hn '立即更新' {} \; 2>/dev/null | head -20
           echo ""
-          echo "=== Context: 10 lines before/after each match ==="
-          grep -rn -B10 -A10 '立即更新' /tmp/apktool_out/smali* --include='*.smali' | head -200
+          echo "=== Extract resource IDs ==="
+          find /tmp/apktool_out/res -name 'strings.xml' -exec grep -H '立即更新' {} \; 2>/dev/null | grep -oP 'name="[^"]*"' | head -10
+
+      - name: 🔍 Find smali references to update string IDs
+        run: |
+          echo "=== Searching for R.string references in smali ==="
+          # Common patterns: const v0, 0x7f130abc  (resource ID)
+          # Find the actual ID from public.xml if needed
+          grep -rn 'R\.string\|0x7f[0-9a-f]\{6\}' /tmp/apktool_out/smali* --include='*.smali' | grep -i 'update\|upgrade' | head -50
 
       - name: Apply smali patches
         run: python3 .github/scripts/hg-smali-patch.py /tmp/apktool_out
