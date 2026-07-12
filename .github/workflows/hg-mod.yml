@@ -200,6 +200,14 @@ jobs:
         run: |
           /opt/apktool d /tmp/hg.apk -o /tmp/apktool_out -f -r 2>&1 | tail -3
 
+      - name: 🔍 Search "立即更新" dialog in smali
+        run: |
+          echo "=== Files containing '立即更新' ==="
+          grep -rn '立即更新' /tmp/apktool_out/smali* --include='*.smali' | head -50
+          echo ""
+          echo "=== Context: 10 lines before/after each match ==="
+          grep -rn -B10 -A10 '立即更新' /tmp/apktool_out/smali* --include='*.smali' | head -200
+
       - name: Apply smali patches
         run: python3 .github/scripts/hg-smali-patch.py /tmp/apktool_out
 
