@@ -239,6 +239,12 @@ jobs:
       - name: Search resources.arsc and res/ XML
         run: bash .github/scripts/hg-search-resources.sh /tmp/apktool_out
 
+      - name: Search Native .so libraries
+        run: bash .github/scripts/hg-search-native.sh /tmp/apktool_out
+
+      - name: Search obfuscated string patterns
+        run: bash .github/scripts/hg-search-obfuscated.sh /tmp/apktool_out
+
       - name: Rebuild APK
         run: |
           /opt/apktool b /tmp/apktool_out -o /tmp/hg-unsigned.apk --copy-original 2>&1 | tail -10
