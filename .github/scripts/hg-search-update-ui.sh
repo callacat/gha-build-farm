@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -eu  # ponytail: 去掉 pipefail，grep|head 的 SIGPIPE 不是错误
 
 APK_DIR="${1:-/tmp/apktool_out}"
 
