@@ -211,6 +211,10 @@ jobs:
           curl -sL --max-time 300 "$APK_URL" -o /tmp/hg.apk
           ls -lh /tmp/hg.apk
 
+      - name: apktool decode (skip resources)
+        run: |
+          /opt/apktool d /tmp/hg.apk -o /tmp/apktool_out -f -r 2>&1 | tail -3
+
       - name: 🔍 Find force-update dialog construction code
         run: python3 .github/scripts/hg-find-dialog.py
 
@@ -222,10 +226,6 @@ jobs:
           path: /tmp/dialog-construction.txt
           compression-level: 0
           retention-days: 7
-
-      - name: apktool decode (skip resources)
-        run: |
-          /opt/apktool d /tmp/hg.apk -o /tmp/apktool_out -f -r 2>&1 | tail -3
 
       - name: Apply smali patches
         run: python3 .github/scripts/hg-smali-patch.py /tmp/apktool_out
