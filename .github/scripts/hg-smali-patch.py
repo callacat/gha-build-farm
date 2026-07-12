@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""红果短剧 去强制更新 v5 — 先分析再打补丁"""
-import re, sys
+"""红果短剧 v7 — 从 APK 二进制删除更新相关 Activity 注册"""
+import re, sys, os, zipfile, shutil
 from pathlib import Path
 
 APK = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("/tmp/apktool_out")
@@ -11,85 +11,73 @@ def find(pat):
         if sd.is_dir():
             yield from sd.rglob(pat)
 
-# ═══ 第一步：诊断 ═══
-print("=== DIAGNOSTIC: SplashActivity smali ===")
-for f in find("SplashActivity.smali"):
-    r = str(f.relative_to(APK))
-    t = f.read_text("utf-8", errors="replace")
-    # Check if it's the app's SplashActivity
-    lines = t.splitlines()
-    for i, l in enumerate(lines):
-        # find all method calls that could be the trigger
-        ls = l.strip()
-        if "startActivity" in ls or "Intent" in ls or "ACTION_VIEW" in ls:
-            print(f"  {f.relative_to(APK)}:L{i+1} {ls[:120]}")
-        if "dialog" in ls.lower() or "finish" in ls.lower() or "onCreate" in ls:
-            if not ls.startswith('.') and ls:
-                print(f"  {f.relative_to(APK)}:L{i+1} {ls[:120]}")
+BAD_ACTIVITIES = [
+    "com.ss.android.update.UpdateProgressActivity",
+    "com.bytedance.ug.sdk.luckydog.window.dialog.LuckyDogLowUpdateDialog",
+    "com.android.ttcjpaysdk.thirdparty.supplementarysign.activity.CJPaySSUpdateCardInfoActivity",
+    "com.dragon.read.component.biz.impl.bookshelf.chase.ChaseUpdatesActivity",
+]
 
-# ═══ 第二步：找到后打补丁 ═══
-# Also check MainFragmentActivity
-print("\n=== DIAGNOSTIC: MainFragmentActivity ===")
-for f in find("MainFragmentActivity.smali"):
-    t = f.read_text("utf-8", errors="replace")
-    for i, l in enumerate(t.splitlines()):
-        ls = l.strip()
-        if "startActivity" in ls or "ACTION_VIEW" in ls or "dialog" in ls.lower():
-            if "androidx" not in str(f.relative_to(APK)):
-                print(f"  L{i+1} {ls[:120]}")
+# ── 1. Manifest: 找到并打印这些 Activity 的注册，尝试 NOP ──
+mf = APK / "AndroidManifest.xml"
+if mf.is_file():
+    t = mf.read_text("utf-8", errors="replace")
+    for bad in BAD_ACTIVITIES:
+        # Find the <activity block for this class
+        pat = rf'(<activity[^>]*{re.escape(bad)}[^>]*>)'
+        for m in re.finditer(pat, t):
+            print(f"  MANIFEST: {m.group()[:120]}")
+            # The --copy-original means this won't apply, but we're logging it
+    # Also list ALL activities for reference
+    acts = re.findall(r'<activity\s+([^>]*android:name="([^"]*)"[^>]*)>', t)
+    for attr, name in acts:
+        if 'Theme.AppCompat.Dialog' in attr or 'android:theme="@' in attr:
+            theme = re.search(r'theme="([^"]*)"', attr)
+            tname = theme.group(1) if theme else '?'
+            print(f"  ACTIVITY: {name}  theme={tname}")
 
-# ═══ 第三步：搜索所有含 update/download URL 的 smali ═══
-print("\n=== DIAGNOSTIC: Ali/Pay/Taobao/Weibo URL references ===")
-for f in find("*.smali"):
-    t = f.read_text("utf-8", errors="replace")
-    for kw in ["taobao", "weibo.com", "weixin.qq", "xiaohongshu", "alipay"]:
-        if kw in t.lower():
-            r = str(f.relative_to(APK))
-            if "androidx" not in r:
-                print(f"  {r}: {kw}")
-                for m, l in enumerate(t.splitlines()):
-                    if kw in l.lower():
-                        print(f"    L{m+1}: {l.strip()[:120]}")
-
-# ═══ 第四步：设置安全补丁（已有的大部分） ═══
-def replace_in(path, old, new):
-    global CHANGES
-    if not path.is_file(): return
-    t = path.read_text("utf-8", errors="replace")
-    if old not in t: return
-    t = t.replace(old, new)
-    path.write_text(t)
-    CHANGES += 1
-    print(f"  PATCH {path.relative_to(APK)}")
-
-# setCancelable
+# ── 2. setCancelable(false) → true ──
 for f in find("*.smali"):
     r = str(f.relative_to(APK))
     if "/androidx/" in r or "/android/support/" in r: continue
-    replace_in(f, "setCancelable(false)", "setCancelable(true)")
-    replace_in(f, "setCanceledOnTouchOutside(false)", "setCanceledOnTouchOutside(true)")
+    t = f.read_text("utf-8", errors="replace"); o = t
+    t = t.replace("setCancelable(false)", "setCancelable(true)")
+    t = t.replace("setCanceledOnTouchOutside(false)", "setCanceledOnTouchOutside(true)")
+    if t != o:
+        f.write_text(t); CHANGES += 1
 
-# PopDefiner upgrade/update/force dialogs
+# ── 3. PopDefiner: all upgrade/update/force → const null ──
 for f in find("PopDefiner*.smali"):
     t = f.read_text("utf-8", errors="replace"); o = t
     t = re.sub(r'sget-object\s+(\w+),\s*Lcom/dragon/read/pop/PopDefiner;->(\w*(?:upgrade|update|force)\w*):.*',
-               r'const/4 \1, 0x0  # \2 NOP', t)
+               r'const/4 \1, 0x0', t)
     if t != o:
         f.write_text(t); CHANGES += 1
-        print(f"  NOP force dialogs in {f.relative_to(APK)}")
 
-# UpgradePopupNewStyle
+# ── 4. UpgradePopupNewStyle show → dismiss ──
 for f in find("UpgradePopupNewStyle*.smali"):
-    replace_in(f, "->show()Z", "->dismiss()V")
-    replace_in(f, "->show()V", "->dismiss()V")
+    t = f.read_text("utf-8", errors="replace"); o = t
+    t = t.replace("->show()Z", "->dismiss()V").replace("->show()V", "->dismiss()V")
+    if t != o:
+        f.write_text(t); CHANGES += 1
 
-# PushImpl
+# ── 5. ForceUpdateInfo → const 0x0 ──
+for f in find("ForceUpdateInfo.smali"):
+    t = f.read_text("utf-8", errors="replace"); o = t
+    t = t.replace("const/4 v0, 0x1", "const/4 v0, 0x0")
+    if t != o:
+        f.write_text(t); CHANGES += 1
+
+# ── 6. PushImpl → comment forceUpdate ──
 for f in find("PushImpl.smali"):
-    t = f.read_text("utf-8", errors="replace"); lines = t.splitlines(keepends=True)
-    for i, l in enumerate(lines):
+    t = f.read_text("utf-8", errors="replace")
+    lines = t.splitlines(keepends=True)
+    new_lines = []
+    for l in lines:
         if "forceUpdate" in l and not l.strip().startswith("#"):
-            lines[i] = f"# {l}"
-    f.write_text("".join(lines)); CHANGES += 1
-    print(f"  COMMENT forceUpdate in {f.relative_to(APK)}")
+            new_lines.append(f"# {l}")
+        else:
+            new_lines.append(l)
+    f.write_text("".join(new_lines)); CHANGES += 1
 
 print(f"\n=== 补丁完成: {CHANGES} 处修改 ===")
