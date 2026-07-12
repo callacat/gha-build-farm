@@ -157,6 +157,21 @@ jobs:
           compression-level: 3
           retention-days: 7
 
+      - name: Notify completion
+        if: always()
+        run: |
+          STATUS="${{ job.status }}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          if [ "$STATUS" = "success" ]; then
+            MSG="✅ 红果短剧去更新构建成功 (analysis)\n$RUN_URL"
+          else
+            MSG="❌ 红果短剧去更新构建失败 (analysis)\n$RUN_URL"
+          fi
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_BOT_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TG_CHAT_ID }}" \
+            -d "text=$MSG" \
+            -d "parse_mode=HTML" || true
+
       - name: Clean old runs
         uses: Mattraks/delete-workflow-runs@v2
         with:
@@ -240,6 +255,21 @@ jobs:
           path: /tmp/hg-modified.apk
           compression-level: 0
           retention-days: 30
+
+      - name: Notify completion
+        if: always()
+        run: |
+          STATUS="${{ job.status }}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          if [ "$STATUS" = "success" ]; then
+            MSG="✅ 红果短剧去更新构建成功 (patch)\n$RUN_URL"
+          else
+            MSG="❌ 红果短剧去更新构建失败 (patch)\n$RUN_URL"
+          fi
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_BOT_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TG_CHAT_ID }}" \
+            -d "text=$MSG" \
+            -d "parse_mode=HTML" || true
 
       - name: Clean old runs
         uses: Mattraks/delete-workflow-runs@v2
