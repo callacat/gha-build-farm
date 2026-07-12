@@ -196,12 +196,13 @@ jobs:
           curl -sL --max-time 300 "$APK_URL" -o /tmp/hg.apk
           ls -lh /tmp/hg.apk
 
-      - name: 🔍 Extract string resources with aapt2
+      - name: 🔍 Extract strings from APK and search for update dialog
         run: |
-          SDK=/usr/local/lib/android/sdk; [ -d "$SDK" ] || SDK=$ANDROID_HOME
-          BT=$(find "$SDK/build-tools" -maxdepth 1 -type d | sort -Vr | head -1)
-          echo "=== Dump all string resources ==="
-          $BT/aapt2 dump strings /tmp/hg.apk 2>/dev/null | grep -i '立即更新' | head -20
+          echo "=== Extract all printable strings containing '立即更新' ==="
+          strings /tmp/hg.apk | grep '立即更新' | head -20
+          echo ""
+          echo "=== Also search for common update keywords ==="
+          strings /tmp/hg.apk | grep -E '(立即更新|立即升级|马上更新|更新版本|版本更新|Update Now|Upgrade Now)' | head -30
 
       - name: apktool decode (skip resources)
         run: |
