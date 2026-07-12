@@ -215,15 +215,15 @@ jobs:
         run: |
           /opt/apktool d /tmp/hg.apk -o /tmp/apktool_out -f -r 2>&1 | tail -3
 
-      - name: 🔍 Find force-update dialog construction code
-        run: python3 .github/scripts/hg-find-dialog.py
+      - name: 🔍 Search for "立即更新" string references globally
+        run: python3 .github/scripts/hg-find-update-string.py
 
-      - name: Upload dialog analysis result
+      - name: Upload update string references
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: dialog-construction
-          path: /tmp/dialog-construction.txt
+          name: update-string-refs
+          path: /tmp/update-string-refs.txt
           compression-level: 0
           retention-days: 7
 
