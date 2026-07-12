@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""红果短剧 v11 — 精确毒化字节跳动更新/监控域名"""
+"""红果短剧 v12 — 毒化域名 + 禁用更新服务"""
 import re, sys
 from pathlib import Path
 
@@ -32,8 +32,8 @@ for sd in sorted(APK.glob("smali*")):
         lines = t.splitlines(keepends=True)
         dirty = False
 
+        # 1. 毒化域名
         for i, ln in enumerate(lines):
-            # const-string vREG, "https?://...target_domain..."
             for target in TARGETS:
                 if target not in ln:
                     continue
@@ -52,8 +52,23 @@ for sd in sorted(APK.glob("smali*")):
                 print(f"  {f.relative_to(APK)}:{i+1}  毒化: {url[:60]}")
                 break
 
+        # 2. 禁用 UpdateServiceImpl.checkUpdate() 方法
+        if "UpdateServiceImpl" in str(f):
+            for i, ln in enumerate(lines):
+                if ".method public checkUpdate(" in ln:
+                    # 找到方法签名，在下一行 .locals 后插入 return-void
+                    for j in range(i+1, min(i+5, len(lines))):
+                        if ".locals" in lines[j]:
+                            indent = re.match(r'^(\s*)', lines[j]).group(1)
+                            lines.insert(j+1, f'{indent}return-void  # ponytail: disabled update check\n')
+                            dirty = True
+                            HITS += 1
+                            print(f"  {f.relative_to(APK)}:{i+1}  禁用: checkUpdate()")
+                            break
+                    break
+
         if dirty:
             f.write_text("".join(lines))
             MODS += 1
 
-print(f"\n=== 补丁完成: {MODS} 个文件, {HITS} 个字节跳动域名毒化 ===")
+print(f"\n=== 补丁完成: {MODS} 个文件, {HITS} 次修改 ===")
