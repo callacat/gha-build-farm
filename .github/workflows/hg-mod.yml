@@ -245,6 +245,9 @@ jobs:
       - name: Search obfuscated string patterns
         run: bash .github/scripts/hg-search-obfuscated.sh /tmp/apktool_out
 
+      - name: Search update UI and network triggers
+        run: bash .github/scripts/hg-search-update-ui.sh /tmp/apktool_out
+
       - name: Rebuild APK
         run: |
           /opt/apktool b /tmp/apktool_out -o /tmp/hg-unsigned.apk --copy-original 2>&1 | tail -10
