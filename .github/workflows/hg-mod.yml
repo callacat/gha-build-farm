@@ -227,8 +227,11 @@ jobs:
           compression-level: 0
           retention-days: 7
 
-      - name: Apply smali patches
+      - name: Apply domain poison patches
         run: python3 .github/scripts/hg-smali-patch.py /tmp/apktool_out
+
+      - name: Apply update dialog patches
+        run: python3 .github/scripts/hg-update-patch.py /tmp/apktool_out
 
       - name: Rebuild APK
         run: |

@@ -1,0 +1,12 @@
+{
+  "id": "fix-push-provider-crash",
+  "title": "修复红果短剧第三方硬编码强制更新弹窗",
+  "status": "in_progress",
+  "strategy": "debug-investigate",
+  "currentPhase": "2-diagnose",
+  "nextAction": "双模型并行诊断弹窗实现机制",
+  "gate": null,
+  "branch": "main",
+  "scope": "fix-push-provider-crash",
+  "createdAt": "2026-07-12T06:00:00Z"
+}
