@@ -128,8 +128,37 @@ for sd in sorted(APK.glob("smali*")):
             f.write_text("".join(lines))
             MODS += 1
 
-# ========== 策略 4: 兜底 - 搜索 show() 方法前插入 return-void（高风险，暂不启用）==========
+# ========== 策略 4: 短路 LuckyDogWindowConfig.showPopupDialog() ==========
+print("\n=== 策略4: 短路 LuckyDog 弹窗入口 ===")
+LUCKYDOG_CONFIG_CLASS = "LuckyDogWindowConfig"
+for sd in sorted(APK.glob("smali*")):
+    if not sd.is_dir():
+        continue
+    for f in sd.rglob("*.smali"):
+        if LUCKYDOG_CONFIG_CLASS not in str(f):
+            continue
+        t = f.read_text("utf-8", errors="replace")
+        lines = t.splitlines(keepends=True)
+        dirty = False
+        for i, ln in enumerate(lines):
+            # 找到 showPopupDialog 方法入口，插入 return-void
+            if ".method public showPopupDialog(Lcom/bytedance/ug/sdk/luckydog/api/window/PopupModel;)V" in ln:
+                if i+1 < len(lines) and ".locals" not in lines[i+1] and "return-void" not in lines[i+1]:
+                    indent = re.match(r'^(\s*)', lines[i+1]).group(1)
+                    lines.insert(i+1, f'{indent}.locals 0\n{indent}return-void  # ponytail: sk\n')
+                    dirty = True
+                    HITS += 1
+                    print(f"  {f.relative_to(APK)}:{i+1}  LuckyDogWindowConfig.showPopupDialog → return-void")
+                    break
+                elif i+1 < len(lines) and "return-void" in lines[i+1]:
+                    print(f"  {f.relative_to(APK)}:{i+1}  已短路，跳过")
+                    break
+        if dirty:
+            f.write_text("".join(lines))
+            MODS += 1
+
+# ========== 策略 5: 兜底 - 搜索 show() 方法前插入 return-void（高风险，暂不启用）==========
 # 此策略会导致所有 Dialog 无法显示，暂时注释
-# print("\n=== 策略4: show() 方法短路（已禁用）===")
+# print("\n=== 策略5: show() 方法短路（已禁用）===")
 
 print(f"\n=== 补丁完成: {MODS} 个文件修改, {HITS} 处拦截 ===")
