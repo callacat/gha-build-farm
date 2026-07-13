@@ -175,6 +175,7 @@ jobs:
       - name: Clean old runs
         uses: Mattraks/delete-workflow-runs@v2
         with:
+          token: ${{ secrets.PAT }}
           retain_days: 0
           keep_minimum_runs: 5
 
@@ -296,5 +297,6 @@ jobs:
       - name: Clean old runs
         uses: Mattraks/delete-workflow-runs@v2
         with:
+          token: ${{ secrets.PAT }}
           retain_days: 0
           keep_minimum_runs: 5
