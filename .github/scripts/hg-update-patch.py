@@ -29,6 +29,7 @@ for sd in sorted(APK.glob("smali*")):
                 print(f"  P1: return-void")
                 break
         if d:
-            f.write_text("".join(lines)); MODS += 1
+            f.write_text("".join(lines)); HITS += 1
 
 print(f"\n=== Done: {HITS} hit(s) ===")
+
