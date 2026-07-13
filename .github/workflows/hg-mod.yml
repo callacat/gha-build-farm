@@ -244,10 +244,10 @@ jobs:
         run: bash .github/scripts/hg-search-native.sh /tmp/apktool_out || true
 
       - name: Search obfuscated string patterns
-        run: bash .github/scripts/hg-search-obfuscated.sh /tmp/apktool_out || true
+        run: timeout 120 bash .github/scripts/hg-search-obfuscated.sh /tmp/apktool_out || true
 
       - name: Search update UI and network triggers
-        run: bash .github/scripts/hg-search-update-ui.sh /tmp/apktool_out || true
+        run: timeout 120 bash .github/scripts/hg-search-update-ui.sh /tmp/apktool_out || true
 
       - name: Rebuild APK
         run: |
