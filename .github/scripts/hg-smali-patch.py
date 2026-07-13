@@ -53,7 +53,7 @@ for sd in sorted(APK.glob("smali*")):
                 break
 
         # 2. 禁用 UpdateServiceImpl.checkUpdate() 方法
-        if "UpdateServiceImpl" in str(f):
+        if f.name == "UpdateServiceImpl.smali":
             for i, ln in enumerate(lines):
                 if ".method public checkUpdate(" in ln:
                     # 找到方法签名，在下一行 .locals 后插入 return-void
@@ -72,3 +72,4 @@ for sd in sorted(APK.glob("smali*")):
             MODS += 1
 
 print(f"\n=== 补丁完成: {MODS} 个文件, {HITS} 次修改 ===")
+
