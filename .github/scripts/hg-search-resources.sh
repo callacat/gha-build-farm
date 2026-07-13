@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -eu
 
 APK_DIR="${1:-/tmp/apktool_out}"
 
