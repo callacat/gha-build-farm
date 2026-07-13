@@ -98,8 +98,38 @@ for sd in sorted(APK.glob("smali*")):
             f.write_text("".join(lines))
             MODS += 1
 
-# ========== 策略 3: 兜底 - 搜索 show() 方法前插入 return-void（高风险，暂不启用）==========
+# ========== 策略 3: 毒化升级弹窗枚举（gray_upgrade + official_upgrade + force_upgrade）==========
+print("\n=== 策略3: 毒化升级弹窗枚举 ===")
+for sd in sorted(APK.glob("smali*")):
+    if not sd.is_dir():
+        continue
+    for f in sd.rglob("*.smali"):
+        r = str(f.relative_to(APK))
+        t = f.read_text("utf-8", errors="replace")
+        lines = t.splitlines(keepends=True)
+        dirty = False
+
+        # 毒化 PopDefiner 中 gray_upgrade_dialog, official_upgrade_dialog 的构造函数
+        # 让它们返回空弹窗（修改 getID 或 isHighValue 返回 false）
+        if "gray_upgrade_dialog" in r or "official_upgrade_dialog" in r or "force_upgrade_dialog" in r:
+            for i, ln in enumerate(lines):
+                # 把 isFunctionality() 返回 false — 该弹窗不再显示
+                if "isFunctionality" in ln and "Z" in ln:
+                    for j in range(i+1, min(i+3, len(lines))):
+                        if "const/4" in lines[j] and ("0x1" in lines[j] or "0x0" in lines[j]):
+                            indent2 = re.match(r'^(\s*)', lines[j]).group(1)
+                            lines[j] = f'{indent2}const/4 v0, 0x0  # ponytail: disable upgrade dialog\n'
+                            dirty = True
+                            HITS += 1
+                            print(f"  {f.relative_to(APK)}:{j+1}  {f.parent.name}.isFunctionality → false")
+                            break
+                    break
+        if dirty:
+            f.write_text("".join(lines))
+            MODS += 1
+
+# ========== 策略 4: 兜底 - 搜索 show() 方法前插入 return-void（高风险，暂不启用）==========
 # 此策略会导致所有 Dialog 无法显示，暂时注释
-# print("\n=== 策略3: show() 方法短路（已禁用）===")
+# print("\n=== 策略4: show() 方法短路（已禁用）===")
 
 print(f"\n=== 补丁完成: {MODS} 个文件修改, {HITS} 处拦截 ===")
