@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""红果短剧 v7.2.7.32 -- 禁用强制更新弹窗
+"""Hongguo v7.2.7.32 -- disable force update dialogs
 
-策略（按优先级）：
-1. DialogFragment.forceUpdate 硬编码为 false
-2. 全局 setCancelable(false) -> setCancelable(true)
-3. 毒化升级弹窗枚举（gray_upgrade + official_upgrade + force_upgrade）
+Strategy:
+1. DialogFragment.forceUpdate hardcode to false
+2. Global setCancelable(false) -> setCancelable(true)
+3. Poison upgrade dialog enums (gray_upgrade, official_upgrade, force_upgrade)
 4. LuckyDogLowUpdateDialog.O1() finish + return-void
 """
 import re, sys
@@ -14,40 +14,37 @@ APK = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("/tmp/apktool_out")
 MODS = 0
 HITS = 0
 
-# ========== 策略 1 ==========
-target_class = None
+# Strategy 1: DialogFragment forceUpdate
+target = None
 for sd in sorted(APK.glob("smali*")):
     if not sd.is_dir(): continue
     for f in sd.rglob("*.smali"):
         try:
             t = f.read_text("utf-8", errors="replace")
             if re.search(r'\.super.*DialogFragment', t) and re.search(r'\.field.*forceUpdate:Z', t):
-                target_class = f
-                break
-        except:
-            continue
-    if target_class: break
+                target = f; break
+        except: continue
+    if target: break
 
-if target_class:
-    print(f"策略1: 找到目标类 {target_class.relative_to(APK)}")
-    t = target_class.read_text("utf-8", errors="replace")
+if target:
+    print("S1: found " + str(target.relative_to(APK)))
+    t = target.read_text("utf-8", errors="replace")
     lines = t.splitlines(keepends=True)
-    dirty = False
+    d = False
     for i, ln in enumerate(lines):
         m = re.search(r'iput-boolean\s+(v\d+|p\d+),\s*p0,\s*L[^;]+;->forceUpdate:Z', ln)
         if m:
             reg = m.group(1)
             indent = re.match(r'^(\s*)', ln).group(1)
-            lines[i] = f'{indent}const/4 {reg}, 0x0  # force forceUpdate=false\n{ln}'
-            dirty = True; HITS += 1
-            print(f"  {target_class.relative_to(APK)}:{i+1}  forceUpdate -> false")
-    if dirty:
-        target_class.write_text("".join(lines)); MODS += 1
+            lines[i] = indent + 'const/4 ' + reg + ', 0x0  # force false\n' + ln
+            d = True; HITS += 1
+    if d:
+        target.write_text("".join(lines)); MODS += 1
 else:
-    print("策略1: 未找到 DialogFragment+forceUpdate")
+    print("S1: not found")
 
-# ========== 策略 2 ==========
-print("\n策略2: setCancelable(false) -> true")
+# Strategy 2: setCancelable
+print("\nS2: setCancelable(false)->true")
 for sd in sorted(APK.glob("smali*")):
     if not sd.is_dir(): continue
     for f in sd.rglob("*.smali"):
@@ -55,66 +52,64 @@ for sd in sorted(APK.glob("smali*")):
         if "/androidx/" in r or "/annotation/" in r: continue
         t = f.read_text("utf-8", errors="replace")
         lines = t.splitlines(keepends=True)
-        dirty = False
+        d = False
         for i, ln in enumerate(lines):
             if 'setCancelable' not in ln: continue
             for j in range(max(0, i-5), i):
                 prev = lines[j]
                 m = re.search(r'const/4\s+(v\d+),\s*0x0', prev)
                 if m and m.group(1) in ln:
-                    reg, indent = m.group(1), re.match(r'^(\s*)', prev).group(1)
-                    lines[j] = f'{indent}const/4 {reg}, 0x1  # patch: true\n'
-                    dirty = True; HITS += 1
-                    print(f"  {f.relative_to(APK)}:{j+1}  setCancelable false->true")
+                    indent = re.match(r'^(\s*)', prev).group(1)
+                    lines[j] = indent + 'const/4 ' + m.group(1) + ', 0x1  # patch\n'
+                    d = True; HITS += 1
                     break
-        if dirty:
+        if d:
             f.write_text("".join(lines)); MODS += 1
 
-# ========== 策略 3 ==========
-print("\n策略3: 毒化升级弹窗枚举")
+# Strategy 3: poison pop enums
+print("\nS3: poison upgrade enums")
 for sd in sorted(APK.glob("smali*")):
     if not sd.is_dir(): continue
     for f in sd.rglob("*.smali"):
         r = str(f.relative_to(APK))
         t = f.read_text("utf-8", errors="replace")
         lines = t.splitlines(keepends=True)
-        dirty = False
+        d = False
         if "gray_upgrade_dialog" in r or "official_upgrade_dialog" in r or "force_upgrade_dialog" in r:
             for i, ln in enumerate(lines):
                 if "isFunctionality" in ln and "Z" in ln:
                     for j in range(i+1, min(i+3, len(lines))):
-                        if "const/4" in lines[j] and ("0x1" in lines[j] or "0x0" in lines[j]):
+                        if "const/4" in lines[j]:
                             indent = re.match(r'^(\s*)', lines[j]).group(1)
-                            lines[j] = f'{indent}const/4 v0, 0x0  # ponytail: disable\n'
-                            dirty = True; HITS += 1
-                            print(f"  {f.relative_to(APK)}:{j+1}  isFunctionality -> false")
+                            lines[j] = indent + 'const/4 v0, 0x0  # disable\n'
+                            d = True; HITS += 1
                             break
                     break
-        if dirty:
+        if d:
             f.write_text("".join(lines)); MODS += 1
 
-# ========== 策略 4: LuckyDogLowUpdateDialog ==========
-print("\n策略4: 短路 LuckyDogLowUpdateDialog")
+# Strategy 4: LuckyDogLowUpdateDialog.P1() shortcut (actual onCreate body)
+# P1(Intent, Bundle) is the real init after Lancet proxy T1
+print("\nS4: shortcut LuckyDogLowUpdateDialog.P1()")
 for sd in sorted(APK.glob("smali*")):
     if not sd.is_dir(): continue
     for f in sd.rglob("*.smali"):
         if f.name != "LuckyDogLowUpdateDialog.smali": continue
         t = f.read_text("utf-8", errors="replace")
         lines = t.splitlines(keepends=True)
-        dirty = False
+        d = False
         for i, ln in enumerate(lines):
-            m = re.search(r'\.method\s+(public\s+)?static\s+(final\s+)?(protected\s+)?(void\s+)?O1\(', ln)
-            if m:
-                indent = re.match(r'^(\s*)', ln).group(1)
-                lines.insert(i+1, f'{indent}invoke-virtual {{p0}}, Lcom/bytedance/ug/sdk/luckydog/window/dialog/LuckyDogLowUpdateDialog;->finish()V\n')
-                lines.insert(i+2, f'{indent}return-void  # ponytail: skip\n')
-                dirty = True; HITS += 1
-                print(f"  {f.relative_to(APK)}:{i+1}  O1() finish + return-void")
+            if '.method public P1(Landroid/content/Intent;Landroid/os/Bundle;)V' in ln:
+                # Find .locals and insert return-void right after
+                for j in range(i+1, min(i+5, len(lines))):
+                    if '.locals' in lines[j]:
+                        indent = re.match(r'^(\s*)', lines[j]).group(1)
+                        lines.insert(j+1, indent + 'return-void  # ponytail: skip LuckyDogLowUpdateDialog\n')
+                        d = True; HITS += 1
+                        print("  " + str(f.relative_to(APK)) + ":" + str(j+1) + "  P1() -> return-void")
+                        break
                 break
-        if dirty:
+        if d:
             f.write_text("".join(lines)); MODS += 1
-            print(f"  -> {f.relative_to(APK)} patched")
 
-if not HITS:
-    print("\n  === 无修改 ===")
-print(f"\n=== 补丁完成: {MODS} 文件, {HITS} 处 ===")
+print("\n=== Done: " + str(MODS) + " files, " + str(HITS) + " hits ===")
