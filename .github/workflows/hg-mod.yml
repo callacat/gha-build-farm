@@ -235,19 +235,19 @@ jobs:
         run: python3 .github/scripts/hg-update-patch.py /tmp/apktool_out
 
       - name: Search all oneseeker references
-        run: bash .github/scripts/hg-search-oneseeker.sh /tmp/apktool_out
+        run: bash .github/scripts/hg-search-oneseeker.sh /tmp/apktool_out || true
 
       - name: Search resources.arsc and res/ XML
-        run: bash .github/scripts/hg-search-resources.sh /tmp/apktool_out
+        run: bash .github/scripts/hg-search-resources.sh /tmp/apktool_out || true
 
       - name: Search Native .so libraries
-        run: bash .github/scripts/hg-search-native.sh /tmp/apktool_out
+        run: bash .github/scripts/hg-search-native.sh /tmp/apktool_out || true
 
       - name: Search obfuscated string patterns
-        run: bash .github/scripts/hg-search-obfuscated.sh /tmp/apktool_out
+        run: bash .github/scripts/hg-search-obfuscated.sh /tmp/apktool_out || true
 
       - name: Search update UI and network triggers
-        run: bash .github/scripts/hg-search-update-ui.sh /tmp/apktool_out
+        run: bash .github/scripts/hg-search-update-ui.sh /tmp/apktool_out || true
 
       - name: Rebuild APK
         run: |
