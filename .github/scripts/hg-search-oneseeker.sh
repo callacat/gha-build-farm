@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -eu
 
 APK_DIR="${1:-/tmp/apktool_out}"
 
@@ -26,7 +26,7 @@ echo "5. Smali 分段拼接（seeker关键词）"
 grep -rn 'seeker' "$APK_DIR/smali"* --include='*.smali' | grep -v 'oneseeker.top' | head -20 || echo "  (未找到)"
 echo ""
 
-echo "6. Base64 编码（b25lc2Vla2VyLnRvcA==）"
+echo "6. Base64 编码"
 grep -rn 'b25lc2Vla2VyLnRvcA==' "$APK_DIR" || echo "  (未找到)"
 echo ""
 
