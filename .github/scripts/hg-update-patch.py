@@ -32,7 +32,7 @@ for f in sorted(SMALI.rglob("*.smali")):
     dirty = False
 
     for i, ln in enumerate(lines):
-        # Pattern: const/4 vN, 0x0 followed closely by ...->setCancelable(Z)V
+        # Pattern: const/4 vN, 0x0 followed closely by ...->setCancelable(Z)...
         if "const/4" not in ln or ", 0x0" not in ln:
             continue
         reg = re.search(r'const/4\s+(vp?\d+),\s*0x0', ln)
@@ -40,24 +40,27 @@ for f in sorted(SMALI.rglob("*.smali")):
             continue
         r = re.escape(reg.group(1))
 
-        # Look ahead a few lines for setCancelable
-        for j in range(i+1, min(i+4, len(lines))):
-            if re.search(rf'invoke-virtual\s*\{{{r}[^}}]*\}},\s*Landroid/app/Dialog;->setCancelable\(Z\)V', lines[j]):
+        # Look ahead for any setCancelable variant:
+        #   Dialog;->setCancelable(Z)V
+        #   AlertDialog;->setCancelable(Z)V
+        #   AlertDialog$Builder;->setCancelable(Z)Landroid/app/AlertDialog$Builder;
+        for j in range(i+1, min(i+6, len(lines))):
+            if re.search(rf'invoke-virtual\s*\{{{r}[^}}]*\}},\s*Landroid/app/(Dialog|AlertDialog|\$Builder)->setCancelable\(Z\)', lines[j]):
                 indent = re.match(r"^(\s*)", ln).group(1)
                 v = reg.group(1)
-                lines[i] = f"{indent}const/4 {v}, 0x1  # was false → true (patch v15)\n"
+                lines[i] = f"{indent}const/4 {v}, 0x1  # was false → true (patch v16)\n"
                 dirty = True
                 PATCHED += 1
-                print(f"  ✅ {rel}:{i+1}  -> setCancelable(true)")
+                print(f"  ✅ {rel}:{i+1}  -> setCancelable(true)  ({lines[j].strip()[:60]})")
                 break
-            # Also match AlertDialog
-            if re.search(rf'invoke-virtual\s*\{{{r}[^}}]*\}},\s*Landroid/app/AlertDialog;->setCancelable\(Z\)V', lines[j]):
+            # Also match setCanceledOnTouchOutside
+            if re.search(rf'invoke-virtual\s*\{{{r}[^}}]*\}},\s*Landroid/app/(Dialog|AlertDialog)->setCanceledOnTouchOutside\(Z\)', lines[j]):
                 indent = re.match(r"^(\s*)", ln).group(1)
                 v = reg.group(1)
-                lines[i] = f"{indent}const/4 {v}, 0x1  # was false → true (patch v15)\n"
+                lines[i] = f"{indent}const/4 {v}, 0x1  # was false → true (patch v16 touch)\n"
                 dirty = True
                 PATCHED += 1
-                print(f"  ✅ {rel}:{i+1}  -> AlertDialog.setCancelable(true)")
+                print(f"  ✅ {rel}:{i+1}  -> setCanceledOnTouchOutside(true)  ({lines[j].strip()[:60]})")
                 break
 
     if dirty:
