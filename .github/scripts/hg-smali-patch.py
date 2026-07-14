@@ -47,13 +47,26 @@ for sd in sorted(APK.glob("smali*")):
         if "UpdateServiceImpl.smali" == f.name:
             for i, ln in enumerate(lines):
                 if ".method public checkUpdate(" in ln:
+                    close_paren = ln.find(")")
+                    after_sig = ln[close_paren + 1:].lstrip() if close_paren >= 0 else ""
+                    is_void = after_sig.startswith("V")
                     for j in range(i + 1, min(i + 5, len(lines))):
                         if ".locals" in lines[j]:
                             indent = re.match(r"^(\s*)", lines[j]).group(1)
-                            lines.insert(j + 1, f"{indent}return-void  # disabled\n")
+                            locals_m = re.search(r"\.locals\s+(\d+)", lines[j])
+                            loc = int(locals_m.group(1)) if locals_m else 0
+                            nls = [lines[j]]
+                            if loc == 0 and not is_void:
+                                nls[0] = f"{indent}.locals 1\n"
+                            if is_void:
+                                nls.append(f"{indent}return-void  # disabled\n")
+                            else:
+                                nls.append(f"{indent}const/4 v0, 0x0\n")
+                                nls.append(f"{indent}return v0  # disabled (false)\n")
+                            lines[j:j+1] = nls
                             dirty = True
                             HITS += 1
-                            print(f"  {f.relative_to(APK)}:{i+1}  checkUpdate disabled")
+                            print(f"  {f.relative_to(APK)}:{i+1}  checkUpdate disabled (ret={'V' if is_void else 'Z'})")
                             break
                     break
 
