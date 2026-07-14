@@ -273,23 +273,43 @@ jobs:
           $BT/apksigner verify --verbose /tmp/hg-modified.apk 2>&1 | head -15
           ls -lh /tmp/hg-modified.apk
 
-      - name: Upload patched APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: hg-patched
-          path: /tmp/hg-modified.apk
-          compression-level: 0
-          retention-days: 30
+      - name: Upload patched APK to Release
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
+        run: |
+          # Remove old release + tag if they exist
+          gh release delete hg-latest --yes --repo ${{ github.repository }} 2>/dev/null || true
+          git push --delete origin hg-latest 2>/dev/null || true
+
+          # Create new release + attach APK
+          gh release create hg-latest \
+            --repo ${{ github.repository }} \
+            --title "红果短剧 去更新 (latest)" \
+            --notes "构建时间: $(date -u '+%Y-%m-%d %H:%M UTC')\\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            /tmp/hg-modified.apk
+
+          echo ""
+          echo "✅ 下载链接（模拟器浏览器直接打开）:"
+          echo "https://github.com/${{ github.repository }}/releases/download/hg-latest/hg-modified.apk"
+          echo ""
+          echo "✅ gh-proxy 加速（家宽）:"
+          echo "https://gh-proxy.com/https://github.com/${{ github.repository }}/releases/download/hg-latest/hg-modified.apk"
 
       - name: Notify completion
         if: always()
         run: |
           STATUS="${{ job.status }}"
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/hg-latest/hg-modified.apk"
+          GH_PROXY="https://gh-proxy.com/${DOWNLOAD_URL}"
           if [ "$STATUS" = "success" ]; then
-            MSG="✅ 红果短剧去更新构建成功 (patch)\n$RUN_URL"
+            MSG="✅ 红果短剧 patch 构建成功
+Run: ${RUN_URL}
+直链: ${DOWNLOAD_URL}
+加速: ${GH_PROXY}"
           else
-            MSG="❌ 红果短剧去更新构建失败 (patch)\n$RUN_URL"
+            MSG="❌ 红果短剧 patch 构建失败
+Run: ${RUN_URL}"
           fi
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_BOT_TOKEN }}/sendMessage" \
             -d "chat_id=${{ secrets.TG_CHAT_ID }}" \
