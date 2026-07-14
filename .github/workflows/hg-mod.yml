@@ -232,7 +232,7 @@ jobs:
         run: python3 .github/scripts/hg-smali-patch.py /tmp/apktool_out
 
       - name: Apply update dialog patches
-        run: python3 .github/scripts/hg-update-patch.py /tmp/apktool_out
+        run: python3 .github/scripts/hg-update-patch.py /tmp/apktool_out /tmp/hg.apk
       - name: Find dialog source
         run: python3 .github/scripts/hg-find-dialog.py /tmp/apktool_out || true
 
