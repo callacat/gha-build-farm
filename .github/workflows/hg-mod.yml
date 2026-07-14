@@ -303,13 +303,10 @@ jobs:
           DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/hg-latest/hg-modified.apk"
           GH_PROXY="https://gh-proxy.com/${DOWNLOAD_URL}"
           if [ "$STATUS" = "success" ]; then
-            MSG="✅ 红果短剧 patch 构建成功
-Run: ${RUN_URL}
-直链: ${DOWNLOAD_URL}
-加速: ${GH_PROXY}"
+            MSG=$(printf '✅ 红果短剧 patch 构建成功\nRun: %s\n直链: %s\n加速: %s' \
+              "$RUN_URL" "$DOWNLOAD_URL" "$GH_PROXY")
           else
-            MSG="❌ 红果短剧 patch 构建失败
-Run: ${RUN_URL}"
+            MSG=$(printf '❌ 红果短剧 patch 构建失败\nRun: %s' "$RUN_URL")
           fi
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_BOT_TOKEN }}/sendMessage" \
             -d "chat_id=${{ secrets.TG_CHAT_ID }}" \
