@@ -122,8 +122,19 @@ jobs:
           grep -B1 'exported="true"' /tmp/apktool_out/AndroidManifest.xml | grep -E 'receiver|<receiver' | head -20 || true
 
       - name: Extract key update smali files
+        run: |
+          mkdir -p /tmp/key-files
+          PKG=$(grep -m1 'package=' /tmp/apktool_out/AndroidManifest.xml | sed 's/.*package="//;s/".*//')
+          PKG_PATH=$(echo "$PKG" | tr '.' '/')
+          echo "=== Main package smali output ==="
+          find /tmp/apktool_out/smali*/$PKG_PATH -name '*Update*' -o -name '*Upgrade*' -o -name '*Version*' 2>/dev/null | head -20 > /tmp/key-files/update-files.txt
+          cat /tmp/key-files/update-files.txt
+          echo ""
+          echo "=== Number of update-related files ==="
+          wc -l /tmp/key-files/update-files.txt
 
       - name: 🔍 Search ALL files for modder server (changzhi.top)
+        run: python3 .github/scripts/hg-search-all-files.py
 
       - name: 🔍 Find port 10008 modder server
         run: python3 .github/scripts/hg-find-port.py
@@ -136,7 +147,6 @@ jobs:
           path: /tmp/port-search.txt
           compression-level: 0
           retention-days: 7
-        run: python3 .github/scripts/hg-search-all-files.py
 
       - name: Upload all-files search result
         if: always()
@@ -146,17 +156,6 @@ jobs:
           path: /tmp/all-files-search.txt
           compression-level: 0
           retention-days: 7
-        run: |
-          mkdir -p /tmp/key-files
-          PKG=$(grep -m1 'package=' /tmp/apktool_out/AndroidManifest.xml | sed 's/.*package="//;s/".*//')
-          PKG_PATH=$(echo "$PKG" | tr '.' '/')
-
-          echo "=== Main package smali output ==="
-          find /tmp/apktool_out/smali*/$PKG_PATH -name '*Update*' -o -name '*Upgrade*' -o -name '*Version*' 2>/dev/null | head -20 > /tmp/key-files/update-files.txt
-          cat /tmp/key-files/update-files.txt
-          echo ""
-          echo "=== Number of update-related files ==="
-          wc -l /tmp/key-files/update-files.txt
 
       - name: 🔍 Ultimate search — modder URL in smali
         run: python3 .github/scripts/hg-find-trigger.py
