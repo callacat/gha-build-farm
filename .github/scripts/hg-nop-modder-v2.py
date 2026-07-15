@@ -32,19 +32,27 @@ for smali_dir in sorted(APK.glob("smali*")):
         print(f"=== Found oneseeker in {r} ===")
         lines = text.splitlines(keepends=True)
         
-        # Find the method containing oneseeker
+        # Find the method containing oneseeker (method definition comes BEFORE the URL)
         url_line = None
-        method_start = None
-        method_end = None
-        method_name = None
-        
+
         for i, ln in enumerate(lines):
             if "oneseeker.top" in ln:
                 url_line = i
-            if url_line is not None and ln.strip().startswith(".method "):
-                method_name = ln.strip()
+                break
+
+        if url_line is None:
+            continue
+
+        # Walk BACKWARDS from URL line to find .method
+        method_start = None
+        method_name = None
+        for i in range(url_line, -1, -1):
+            s = lines[i].strip()
+            if s.startswith(".method "):
                 method_start = i
-        
+                method_name = s
+                break
+
         if method_start is None:
             print("  Could not find method containing oneseeker, skipping")
             continue
