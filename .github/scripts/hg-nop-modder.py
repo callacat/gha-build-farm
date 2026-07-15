@@ -1,58 +1,75 @@
 #!/usr/bin/env python3
-"""Hongguo v21 — Find oneseeker method context and suggest NOP target."""
+"""NOP the method containing oneseeker.top - runs BEFORE domain poison."""
 import re, sys
 from pathlib import Path
 
 APK = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("/tmp/apktool_out")
-TARGET = "oneseeker.top"
+MODS = 0
 
-found = []
-for sd in sorted(APK.glob("smali*")):
-    if not sd.is_dir(): continue
-    for f in sd.rglob("*.smali"):
-        if "MainFragmentActivity" not in f.name: continue
-        text = f.read_text("utf-8", errors="replace")
-        lines = text.splitlines(keepends=True)
-        for i, ln in enumerate(lines):
-            if TARGET not in ln: continue
-            # Method start: walk backwards
-            m_start, m_name = None, None
-            for j in range(i, -1, -1):
-                s = lines[j].strip()
-                if s.startswith(".method "):
-                    m_start, m_name = j, s
-                    break
-            # Method end: walk forwards
-            m_end = None
-            for j in range(i, min(i + 200, len(lines))):
-                if ".end method" in lines[j]:
-                    m_end = j
-                    break
-            if m_start is None: continue
+for f in sorted(APK.rglob("*.smali")):
+    text = f.read_text("utf-8", errors="replace")
+    if "oneseeker.top" not in text:
+        continue
 
-            print(f"=== {f.relative_to(APK)}:{i+1} ===")
-            print(f"Method ({m_start+1}-{m_end+1}): {m_name}")
+    print(f"=== Found oneseeker in {f.relative_to(APK)} ===")
+    lines = text.splitlines(keepends=True)
 
-            # Show the register that holds the URL and trace it
-            reg = None
-            m2 = re.search(r'const-string\s+([vp]\d+)\s*,\s*"[^"]*oneseeker', ln)
-            if m2: reg = m2.group(1)
-            print(f"URL register: {reg}")
+    # Find URL line
+    url_idx = None
+    for i, ln in enumerate(lines):
+        if "oneseeker.top" in ln:
+            url_idx = i
+            break
 
-            # Show full method body for analysis
-            end = min(m_end, m_start + 60) if m_end else min(m_start + 60, len(lines))
-            for j in range(m_start, end):
-                ln2 = lines[j].rstrip()
-                marker = ">>>" if j == i else ("   " if abs(j - i) > 3 else "  !")
-                if j == m_start or abs(j - i) <= 3:
-                    print(f"  {marker} {j+1}: {ln2[:180]}")
-                elif "invoke" in ln2 and reg and reg in ln2:
-                    print(f"  [NET] {j+1}: {ln2[:180]}")
-                elif j == m_end:
-                    print(f"  {marker} {j+1}: {ln2[:180]}")
-            if m_end and m_end >= m_start + 60:
-                print(f"  ... ({m_end - m_start - 60} more lines)")
-            print()
-            found.append(f)
+    # Walk backwards to find .method
+    m_start, m_name = None, None
+    for i in range(url_idx, -1, -1):
+        if lines[i].strip().startswith(".method "):
+            m_start, m_name = i, lines[i].strip()
+            break
 
-print(f"=== Analyzed {len(found)} files ===")
+    if m_start is None:
+        print("  [FAIL] No .method found above URL"); continue
+
+    # Walk forwards to find .end method
+    depth = 0
+    m_end = None
+    for i in range(m_start + 1, len(lines)):
+        stripped = lines[i].strip()
+        if stripped.startswith(".method "):
+            depth += 1
+        elif stripped.startswith(".end method"):
+            if depth == 0:
+                m_end = i
+                break
+            depth -= 1
+
+    if m_end is None:
+        print("  [FAIL] No .end method found"); continue
+
+    # Extract return type from method signature
+    ret_match = re.search(r'\)\(([^)]+)$', m_name)
+    ret_type = ret_match.group(1) if ret_match else "V"
+
+    print(f"  Method ({m_start+1}-{m_end+1}): {m_name}")
+    print(f"  Return type: {ret_type}")
+
+    # NOP the method body
+    header = lines[:m_start + 1]
+    if ret_type == "V":
+        body = ["    .locals 0\n", "    return-void  # oneseeker disabled\n"]
+    elif ret_type == "L" or ret_type.startswith("L"):
+        body = ["    .locals 1\n", "    const/4 v0, 0x0\n", "    return-object v0  # null\n"]
+    elif ret_type == "Z":
+        body = ["    .locals 0\n", "    const/4 v0, 0x0\n", "    return v0  # false\n"]
+    else:
+        body = ["    .locals 0\n", "    const/4 v0, 0x0\n", f"    return v0  # disabled\n"]
+    footer = lines[m_end + 1:]
+
+    new_text = "".join(header + body + footer)
+    f.write_text(new_text, encoding="utf-8")
+    MODS += 1
+    print(f"  ✅ NOPped -> {'void' if ret_type == 'V' else 'null/false'}")
+    break
+
+print(f"\n=== Done: {MODS} files patched ===")
