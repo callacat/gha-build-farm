@@ -1,5 +1,5 @@
 name: Mod Patch Pipeline
-run-name: ${{ inputs.app_id || 'app' }} ${{ inputs.workflow || 'analysis' }}
+# run-name: ${{ inputs.app_id || 'app' }} ${{ inputs.workflow || 'analysis' }}
 
 on:
   workflow_dispatch:
@@ -434,19 +434,19 @@ jobs:
           echo "Tag: $TAG_VERSION"
 
           # ── Write release notes to temp file ──
-          cat > /tmp/release-notes.md << EOF
-**📦 $ID 去更新**
-
-**版本:** $VERSION
-**构建时间:** $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')
-**Run:** [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-
----
-
-**下载：**
-- Latest: https://github.com/${{ github.repository }}/releases/download/$ID-latest/$APK_NAME
-- Versioned: https://github.com/${{ github.repository }}/releases/download/$ID-$TAG_VERSION/$APK_NAME
-- 加速: https://gh-proxy.com/https://github.com/${{ github.repository }}/releases/download/$ID-latest/$APK_NAME
+          rm -f /tmp/release-notes.md
+          echo "**📦 $ID 去更新**" >> /tmp/release-notes.md
+          echo "" >> /tmp/release-notes.md
+          echo "**版本:** $VERSION" >> /tmp/release-notes.md
+          echo "**构建时间:** $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')" >> /tmp/release-notes.md
+          echo "**Run:** [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> /tmp/release-notes.md
+          echo "" >> /tmp/release-notes.md
+          echo "---" >> /tmp/release-notes.md
+          echo "" >> /tmp/release-notes.md
+          echo "**下载：**" >> /tmp/release-notes.md
+          echo "- Latest: https://github.com/${{ github.repository }}/releases/download/$ID-latest/$APK_NAME" >> /tmp/release-notes.md
+          echo "- Versioned: https://github.com/${{ github.repository }}/releases/download/$ID-$TAG_VERSION/$APK_NAME" >> /tmp/release-notes.md
+          echo "- 加速: https://gh-proxy.com/https://github.com/${{ github.repository }}/releases/download/$ID-latest/$APK_NAME" >> /tmp/release-notes.md
 EOF
 
           # ── 1. Latest release (always newest) ──
