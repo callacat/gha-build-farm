@@ -1,81 +1,56 @@
 #!/usr/bin/env python3
-"""Hongguo v21 — NOP the modder's network check instead of poisoning the domain.
-
-The domain oneseeker.top is stored in MainFragmentActivity.smali.
-Poisoning to 127.0.0.1 causes TCP RST → app detects "server error" → blocks startup.
-Poisoning to 0.0.0.0 causes timeout → same blocking behavior.
-NOPing the connection method avoids the network call entirely → no hang + no dialog.
-"""
-import re, sys
+"""Hongguo v21 — Find and analyze the modder's network connection method.
+Goal: find the method containing oneseeker.top URL and its network call, so we can NOP it."""
+import re
 from pathlib import Path
 
 APK = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("/tmp/apktool_out")
-MODS = 0
+TARGET = "oneseeker.top"
 
-# Target: MainFragmentActivity.smali
-# The oneseeker URL is at line 56416. Find the method around it.
-# Since oneseeker is passed to a function that makes network calls,
-# we need to find the line and NOP backward to the method start.
-TARGET = "remote.oneseeker.top"
+found = []
+for sd in sorted(APK.glob("smali*")):
+    if not sd.is_dir(): continue
+    for f in sd.rglob("MainFragmentActivity.smali"):
+        text = f.read_text("utf-8", errors="replace")
+        lines = text.splitlines(keepends=True)
 
-for target_file in [
-    APK / "smali_classes30/com/dragon/read/pages/main/MainFragmentActivity.smali",
-]:
-    if not target_file.exists():
-        print(f"[SKIP] {target_file} not found")
-        continue
+        for i, ln in enumerate(lines):
+            if TARGET in ln:
+                # Find method start/end
+                m_start, m_name, m_end = None, None, None
+                for j in range(i, -1, -1):
+                    if ".method " in lines[j]:
+                        m_start = j
+                        m_name = lines[j].strip()
+                        break
+                for j in range(i, min(i + 200, len(lines))):
+                    if ".end method" in lines[j]:
+                        m_end = j
+                        break
 
-    text = target_file.read_text("utf-8", errors="replace")
-    lines = text.splitlines(keepends=True)
+                print(f"=== Found '{TARGET}' in {f.relative_to(APK)}:{i+1} ===")
+                print(f"Method: {m_name} (lines {m_start+1}-{(m_end or '?')})")
+                print(f"\nContext:")
+                for j in range(max(0, i-3), min(len(lines), i+4)):
+                    marker = ">>>" if j == i else "   "
+                    print(f"  {marker} {j+1}: {lines[j].rstrip()[:160]}")
 
-    # Find oneseeker reference and the method containing it
-    oneseeker_line = None
-    method_start = None
-    method_end = None
-    method_name = None
+                if m_start is not None:
+                    # Show the method body
+                    print(f"\nFull method body (lines {m_start+1}-{min(m_start+80, len(lines))}):")
+                    for j in range(m_start, min(m_start + 80, len(lines))):
+                        print(f"  {j+1}: {lines[j].rstrip()[:160]}")
+                        if j == m_end: break
 
-    for i, ln in enumerate(lines):
-        stripped = ln.strip()
-        if ".method " in stripped:
-            method_start = i
-            method_name = stripped
-        if ".end method" in stripped:
-            method_end = i
-        if TARGET in ln:
-            oneseeker_line = i
-            break
+                # Find network calls in this method
+                print(f"\nNetwork calls in method:")
+                for j in range(m_start or 0, min(m_start or 0 + 80, len(lines))):
+                    ln2 = lines[j].strip()
+                    if any(x in ln2 for x in ["invoke", "HttpURL", "openConnection",
+                                              "connect", "java.net.URL", "new-instance",
+                                              "HttpPost", "HttpGet", "execute",
+                                              "Socket", "InetAddress"]):
+                        print(f"  {j+1}: {ln2[:160]}")
+                found.append(f)
 
-    if oneseeker_line is None:
-        print(f"[SKIP] {TARGET} not found in {target_file.name}")
-        continue
-
-    # Found it! Output the method context for diagnosis
-    print(f"=== Found '{TARGET}' in {target_file.name}:{oneseeker_line+1} ===")
-    print(f"Method: {method_name}")
-    print(f"Method span: lines {method_start+1}-{(method_end or len(lines))}")
-
-    # Show 5 lines around the target for context
-    start_ctx = max(0, oneseeker_line - 2)
-    end_ctx = min(len(lines), oneseeker_line + 3)
-    print("\nContext:")
-    for j in range(start_ctx, end_ctx):
-        marker = ">>>" if j == oneseeker_line else "   "
-        print(f"  {marker} {j+1}: {lines[j].rstrip()[:150]}")
-
-    # Now find the method that MAKES the network call (invoke-* after the const-string)
-    # Look for invoke-virtual/static that uses the register containing oneseeker URL
-    target_contents = []
-    if method_start is not None:
-        for j in range(method_start, min(method_start + 100, len(lines))):
-            stripped = lines[j].strip()
-            # Include method content
-            target_contents.append(f"{j+1}: {lines[j].rstrip()[:150]}")
-            if ".end method" in stripped:
-                break
-
-    target_file_out = Path("/tmp/mainfragment_context.txt")
-    target_file_out.write_text("\n".join(target_contents))
-    print(f"\nFull method context saved to {target_file_out}")
-    MODS += 1
-
-print(f"\n=== Done: {MODS} files analyzed ===")
+print(f"\n=== Analyzed {len(found)} files ===")
