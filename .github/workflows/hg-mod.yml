@@ -306,23 +306,60 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PAT }}
         run: |
-          # Remove old release + tag if they exist
+          # Extract version from the built APK's AndroidManifest
+          VERSION=$(grep -oP 'versionName="[^"]*"' /tmp/apktool_out/AndroidManifest.xml | sed 's/versionName="//;s/"//')
+          echo "APK version: $VERSION"
+
+          # Sanitize version for tag name
+          TAG_VERSION="v${VERSION:-unknown}"
+          echo "Tag: $TAG_VERSION"
+          echo "VERSION_TAG=$TAG_VERSION" >> $GITHUB_ENV
+
+          # ── 1. Update latest (always points to newest build) ──
           gh release delete hg-latest --yes --repo ${{ github.repository }} 2>/dev/null || true
           git push --delete origin hg-latest 2>/dev/null || true
-
-          # Create new release + attach APK
           gh release create hg-latest \
             --repo ${{ github.repository }} \
             --title "红果短剧 去更新 (latest)" \
+            --notes "构建时间: $(date -u '+%Y-%m-%d %H:%M UTC')\\n版本: ${VERSION:-unknown}\\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            /tmp/hg-modified.apk
+
+          # ── 2. Also create versioned release (keep for history) ──
+          gh release delete "hg-$TAG_VERSION" --yes --repo ${{ github.repository }} 2>/dev/null || true
+          git push --delete origin "hg-$TAG_VERSION" 2>/dev/null || true
+          gh release create "hg-$TAG_VERSION" \
+            --repo ${{ github.repository }} \
+            --title "红果短剧 去更新 $TAG_VERSION" \
             --notes "构建时间: $(date -u '+%Y-%m-%d %H:%M UTC')\\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             /tmp/hg-modified.apk
 
           echo ""
-          echo "✅ 下载链接（模拟器浏览器直接打开）:"
-          echo "https://github.com/${{ github.repository }}/releases/download/hg-latest/hg-modified.apk"
+          echo "✅ 下载链接:"
+          echo "  Latest: https://github.com/${{ github.repository }}/releases/download/hg-latest/hg-modified.apk"
+          echo "  Versioned: https://github.com/${{ github.repository }}/releases/download/hg-$TAG_VERSION/hg-modified.apk"
           echo ""
-          echo "✅ gh-proxy 加速（家宽）:"
-          echo "https://gh-proxy.com/https://github.com/${{ github.repository }}/releases/download/hg-latest/hg-modified.apk"
+          echo "✅ gh-proxy 加速:"
+          echo "  https://gh-proxy.com/https://github.com/${{ github.repository }}/releases/download/hg-latest/hg-modified.apk"
+
+      - name: Clean old versioned releases (keep last 5)
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
+        run: |
+          python3 -c "
+          import subprocess, json, sys
+          res = subprocess.run(['gh', 'release', 'list', '--repo', '${{ github.repository }}', '--json', 'tagName,isLatest,createdAt'], capture_output=True, text=True)
+          releases = json.loads(res.stdout)
+          vers = [r for r in releases if r['tagName'].startswith('hg-v') and not r['isLatest']]
+          vers.sort(key=lambda r: r['createdAt'], reverse=True)
+          for r in vers[5:]:
+              tag = r['tagName']
+              print(f'Deleting old release: {tag}')
+              subprocess.run(['gh', 'release', 'delete', tag, '--yes', '--repo', '${{ github.repository }}'], capture_output=True)
+              subprocess.run(['git', 'push', '--delete', 'origin', tag], capture_output=True)
+          kept = min(len(vers), 5)
+          print(f'Kept {kept}, deleted {len(vers)-kept}')
+          "
 
       - name: Notify completion
         if: always()
