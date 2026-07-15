@@ -4,7 +4,9 @@ import re, sys
 from pathlib import Path
 
 APK = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("/tmp/apktool_out")
-POISON = "127.0.0.1"
+# Don't use 127.0.0.1 - RST makes app detect "server error" and hang.
+# Use 1.1.1.1 (Cloudflare) - always online, server responds 404 → app treats it as "no update"
+POISON_HOST = "1.1.1.1"
 # Only poison the explicit update server — CDN/API domains are needed for normal operation.
 # These came from Mihomo logs during update-check, not from startup traffic.
 TARGETS = ["oneseeker.top", "dongle.oneseeker.top", "changzhi.top"]
@@ -36,7 +38,7 @@ for sd in sorted(APK.glob("smali*")):
                 if m:
                     reg, url = m.group(1), m.group(2)
                     indent = re.match(r"^(\s*)", ln).group(1)
-                    lines[i] = f'{indent}const-string {reg}, "http://{POISON}"  # blocked\n'
+                    lines[i] = f'{indent}const-string {reg}, "http://{POISON_HOST}"  # blocked (no update)\n'
                     dirty = True
                     HITS += 1
                     print(f"  {f.relative_to(APK)}:{i+1}  poison: {url[:50]}")
@@ -47,7 +49,7 @@ for sd in sorted(APK.glob("smali*")):
                 if m2:
                     reg, val = m2.group(1), m2.group(2)
                     indent = re.match(r"^(\s*)", ln).group(1)
-                    lines[i] = f'{indent}const-string {reg}, "127.0.0.1"  # blocked\n'
+                    lines[i] = f'{indent}const-string {reg}, "{POISON_HOST}"  # blocked (no update)\n'
                     dirty = True
                     HITS += 1
                     print(f"  {f.relative_to(APK)}:{i+1}  poison(bare): {val[:50]}")
