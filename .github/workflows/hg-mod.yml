@@ -263,11 +263,11 @@ jobs:
           compression-level: 0
           retention-days: 7
 
+      - name: NOP modder connection method (oneseeker) ← MUST run before domain poison
+        run: bash .github/scripts/hg-nop-modder.sh /tmp/apktool_out
+
       - name: Apply domain poison patches
         run: python3 .github/scripts/hg-smali-patch.py /tmp/apktool_out
-
-      - name: NOP modder connection method (oneseeker)
-        run: python3 .github/scripts/hg-nop-modder-v2.py /tmp/apktool_out
 
       - name: Apply update dialog patches
         run: python3 .github/scripts/hg-update-patch.py /tmp/apktool_out /tmp/hg.apk

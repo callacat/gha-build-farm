@@ -7,7 +7,7 @@ makes a synchronous HTTP request. NOP that method to skip network check.
 After NOP: app never connects to oneseeker.top → no hang + no dialog.
 """
 from pathlib import Path
-import re
+import re, sys
 
 APK = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("/tmp/apktool_out")
 MODS = 0
