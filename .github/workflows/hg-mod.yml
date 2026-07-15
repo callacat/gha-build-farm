@@ -137,7 +137,6 @@ jobs:
         run: python3 .github/scripts/hg-search-all-files.py
 
       - name: 🔍 Find port 10008 modder server
-        run: python3 .github/scripts/hg-find-port.py
 
       - name: Upload port search result
         if: always()
