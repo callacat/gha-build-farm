@@ -67,36 +67,29 @@ jobs:
           GH_TOKEN: ${{ secrets.PAT }}
         run: |
           ID="${{ inputs.app_id }}"
-          mkdir -p /tmp/apktool_out
 
           # Step 1: try downloading from URL
           if [ -n "$APK_URL" ]; then
             echo "Downloading from URL..."
             curl -sL --max-time 300 "$APK_URL" -o /tmp/$ID.apk
             SIZE=$(stat -c%s /tmp/$ID.apk 2>/dev/null || echo 0)
-            echo "Downloaded: $SIZE bytes"
             if [ "$SIZE" -gt 1024 ]; then
-              # Got a valid APK — extract version for caching
-              unzip -p /tmp/$ID.apk AndroidManifest.xml 2>/dev/null > /tmp/$ID-manifest.xml
-              VERSION=$(grep -oP 'versionName="[^"]*"' /tmp/$ID-manifest.xml 2>/dev/null | sed 's/versionName="//;s/"//' || echo "unknown")
+              # Extract version from binary AndroidManifest using aapt2
+              SDK=/usr/local/lib/android/sdk; [ -d "$SDK" ] || SDK=$ANDROID_HOME
+              BADGING=$(find "$SDK" -name aapt2 2>/dev/null | head -1)
+              if [ -n "$BADGING" ]; then
+                VERSION=$($BADGING dump badging /tmp/$ID.apk 2>/dev/null | grep -oP "versionName='[^']+'" | sed "s/versionName='//;s/'//")
+              fi
+              VERSION="${VERSION:-unknown}"
               echo "APK version: $VERSION"
               echo "CACHED_VERSION=$VERSION" >> $GITHUB_ENV
-
-              # Upload original to release cache for future reuse
               CACHE_TAG="$ID-original-$VERSION"
               echo "CACHE_TAG=$CACHE_TAG" >> $GITHUB_ENV
-              if gh release view "$CACHE_TAG" --repo ${{ github.repository }} &>/dev/null; then
-                echo "Original already cached in release $CACHE_TAG"
-              else
-                echo "Caching original APK to release $CACHE_TAG..."
-                gh release create "$CACHE_TAG" \
-                  --repo ${{ github.repository }} \
-                  --title "$ID $VERSION original" \
-                  "/tmp/$ID.apk" 2>/dev/null || true
+              if ! gh release view "$CACHE_TAG" --repo ${{ github.repository }} &>/dev/null; then
+                echo "Caching original APK..."
+                gh release create "$CACHE_TAG" --repo ${{ github.repository }} --title "$ID $VERSION original" "/tmp/$ID.apk" 2>/dev/null || true
               fi
               ls -lh /tmp/$ID.apk
-              file /tmp/$ID.apk
-              exit 0
             fi
             echo "URL download failed ($SIZE bytes), trying release cache..."
           fi
@@ -321,7 +314,13 @@ jobs:
             curl -sL --max-time 300 "$APK_URL" -o /tmp/$ID.apk
             SIZE=$(stat -c%s /tmp/$ID.apk 2>/dev/null || echo 0)
             if [ "$SIZE" -gt 1024 ]; then
-              VERSION=$(unzip -p /tmp/$ID.apk AndroidManifest.xml 2>/dev/null | grep -oP 'versionName="[^"]*"' | sed 's/versionName="//;s/"//' || echo "unknown")
+              # Extract version from binary AndroidManifest using aapt/apktool
+              SDK=/usr/local/lib/android/sdk; [ -d "$SDK" ] || SDK=$ANDROID_HOME
+              BADGING=$(find "$SDK" -name aapt2 2>/dev/null | head -1)
+              if [ -n "$BADGING" ]; then
+                VERSION=$($BADGING dump badging /tmp/$ID.apk 2>/dev/null | grep -oP "versionName='[^']+'" | sed "s/versionName='//;s/'//")
+              fi
+              VERSION="${VERSION:-unknown}"
               echo "APK version: $VERSION"
               echo "CACHED_VERSION=$VERSION" >> $GITHUB_ENV
               CACHE_TAG="$ID-original-$VERSION"
@@ -415,7 +414,7 @@ jobs:
           $BT/apksigner verify --verbose /tmp/${{ inputs.app_id }}-signed.apk 2>&1 | head -15
 
           # Extract version and rename APK to include version number
-          VERSION=$(grep -oP 'versionName="[^"]*"' /tmp/apktool_out/AndroidManifest.xml | sed 's/versionName="//;s/"//')
+          VERSION="${CACHED_VERSION:-$(grep -oP 'versionName="[^"]*"' /tmp/apktool_out/AndroidManifest.xml 2>/dev/null | sed 's/versionName="//;s/"//')}"
           APK_NAME="${{ inputs.app_id }}-${VERSION:-modified}.apk"
           cp /tmp/${{ inputs.app_id }}-signed.apk "/tmp/$APK_NAME"
           echo "APK_NAME=$APK_NAME" >> $GITHUB_ENV
