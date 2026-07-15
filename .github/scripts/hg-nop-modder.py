@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Hongguo v21 — Find and analyze the modder's network connection method.
 Goal: find the method containing oneseeker.top URL and its network call, so we can NOP it."""
-import re
+import re, sys
 from pathlib import Path
 
 APK = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("/tmp/apktool_out")
