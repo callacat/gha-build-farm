@@ -20,10 +20,30 @@ on:
           - analysis
           - patch
 
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/hg-mod.yml'
+      - '.github/scripts/hg-*'
+
 env:
   APK_URL: ${{ inputs.apk_url }}
 
 jobs:
+  validate:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate scripts syntax
+        run: |
+          for f in .github/scripts/hg-*.py; do
+            python3 -c "compile(open('$f').read(), '$f', 'exec')" && echo "  ✅ $f" || echo "  ❌ $f"
+          done
+          for f in .github/scripts/hg-*.sh; do
+            bash -n "$f" && echo "  ✅ $f" || echo "  ❌ $f"
+          done
+
   analyze:
     if: ${{ inputs.workflow == 'analysis' }}
     runs-on: ubuntu-22.04
