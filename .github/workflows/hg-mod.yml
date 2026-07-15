@@ -263,8 +263,13 @@ jobs:
           compression-level: 0
           retention-days: 7
 
-      - name: NOP modder connection method (oneseeker) ← MUST run before domain poison
         run: python3 .github/scripts/hg-nop-modder.py /tmp/apktool_out
+
+      - name: 方案B — 清空 oneseeker.top 字符串
+        run: python3 .github/scripts/hg-plan-b.py /tmp/apktool_out
+
+      - name: 方案A — 替换为 LDPlayer 域名
+        run: python3 .github/scripts/hg-plan-a.py /tmp/apktool_out
 
       - name: Apply domain poison patches
         run: python3 .github/scripts/hg-smali-patch.py /tmp/apktool_out
