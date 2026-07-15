@@ -14,7 +14,7 @@ on:
           - patch
 
 env:
-  APK_URL: "https://cloud.dsdog.tk/d/google/%E5%AE%89%E5%8D%93/%E5%BD%B1%E9%9F%B3%E8%A7%86%E5%90%AC/H%E6%9E%9C%E5%85%8D%E8%B4%B9%E7%9F%AD%E5%89%A7_7.2.7.32(72732)-%E4%BC%9A%E5%91%98%E7%BA%AF%E5%87%80%E4%BF%AE%E5%A4%8D%E7%89%88.apk?sign=XpRzLWaxNsoAsszxIlnpMRqoh5-3cJxap3ZDqlXcoaM=:0"
+  APK_URL: "https://cloud.dsdog.tk/d/google/%E5%AE%89%E5%8D%93/%E5%BD%B1%E9%9F%B3%E8%A7%86%E5%90%AC/%E7%BA%A2%E6%9E%9C%E5%85%8D%E8%B4%B9%E7%9F%AD%E5%89%A7_7.2.8.32.apk?sign=LQZzTM1kuZlYXt_iH8cx4CwzUQhHaiYAyQhKgllmB1k=:0"
 
 jobs:
   analyze:
