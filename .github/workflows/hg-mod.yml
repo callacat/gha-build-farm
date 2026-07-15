@@ -1,5 +1,5 @@
 name: Mod Patch Pipeline
-# run-name: ${{ inputs.app_id || 'app' }} ${{ inputs.workflow || 'analysis' }}
+run-name: ${{ inputs.app_id || 'app' }} ${{ inputs.workflow || 'analysis' }}
 
 on:
   workflow_dispatch:
@@ -447,7 +447,6 @@ jobs:
           echo "- Latest: https://github.com/${{ github.repository }}/releases/download/$ID-latest/$APK_NAME" >> /tmp/release-notes.md
           echo "- Versioned: https://github.com/${{ github.repository }}/releases/download/$ID-$TAG_VERSION/$APK_NAME" >> /tmp/release-notes.md
           echo "- 加速: https://gh-proxy.com/https://github.com/${{ github.repository }}/releases/download/$ID-latest/$APK_NAME" >> /tmp/release-notes.md
-EOF
 
           # ── 1. Latest release (always newest) ──
           gh release delete "$ID-latest" --yes --repo ${{ github.repository }} 2>/dev/null || true
