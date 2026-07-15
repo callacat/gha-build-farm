@@ -10,8 +10,10 @@ POISON = "127.0.0.1"
 TARGETS = ["oneseeker.top", "dongle.oneseeker.top", "changzhi.top"]
 
 MODS = HITS = 0
+# Match full URL pattern OR bare domain name / IP
 RE_PATTERN = r'const-string\s+([vp\d]+)\s*,\s*"(https?://[^"]*'  # prefix before target
 RE_SUFFIX = r'[^"]*)"'  # suffix after target
+RE_BARE = r'const-string\s+([vp\d]+)\s*,\s*"([^"]*'  # bare match (no protocol prefix)
 
 for sd in sorted(APK.glob("smali*")):
     if not sd.is_dir():
@@ -28,17 +30,28 @@ for sd in sorted(APK.glob("smali*")):
             for target in TARGETS:
                 if target not in ln:
                     continue
+                # First try full URL pattern
                 pattern = RE_PATTERN + re.escape(target) + RE_SUFFIX
                 m = re.search(pattern, ln)
-                if not m:
-                    continue
-                reg, url = m.group(1), m.group(2)
-                indent = re.match(r"^(\s*)", ln).group(1)
-                lines[i] = f'{indent}const-string {reg}, "http://{POISON}"  # blocked\n'
-                dirty = True
-                HITS += 1
-                print(f"  {f.relative_to(APK)}:{i+1}  poison: {url[:50]}")
-                break
+                if m:
+                    reg, url = m.group(1), m.group(2)
+                    indent = re.match(r"^(\s*)", ln).group(1)
+                    lines[i] = f'{indent}const-string {reg}, "http://{POISON}"  # blocked\n'
+                    dirty = True
+                    HITS += 1
+                    print(f"  {f.relative_to(APK)}:{i+1}  poison: {url[:50]}")
+                    break
+                # Try bare domain match (no protocol prefix)
+                pattern2 = RE_BARE + re.escape(target) + r')"'
+                m2 = re.search(pattern2, ln)
+                if m2:
+                    reg, val = m2.group(1), m2.group(2)
+                    indent = re.match(r"^(\s*)", ln).group(1)
+                    lines[i] = f'{indent}const-string {reg}, "127.0.0.1"  # blocked\n'
+                    dirty = True
+                    HITS += 1
+                    print(f"  {f.relative_to(APK)}:{i+1}  poison(bare): {val[:50]}")
+                    break
 
         if "UpdateServiceImpl.smali" == f.name:
             for i, ln in enumerate(lines):
