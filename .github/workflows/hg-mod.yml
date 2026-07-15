@@ -439,7 +439,18 @@ jobs:
           gh release create "$ID-latest" \
             --repo ${{ github.repository }} \
             --title "$ID 去更新 (latest)" \
-            --notes "构建时间: $(date -u '+%Y-%m-%d %H:%M UTC')\\n版本: ${VERSION}\\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --notes "**📦 $ID 去更新 (latest)**\
+\\n\
+\\n**版本:** $VERSION\
+\\n**构建时间:** $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')\
+\\n**Run:** [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})\
+\\n\
+\\n---\
+\\n\
+\\n**下载：**\
+\\n- Latest: https://github.com/${{ github.repository }}/releases/download/$ID-latest/$APK_NAME\
+\\n- Versioned: https://github.com/${{ github.repository }}/releases/download/$ID-$TAG_VERSION/$APK_NAME\
+\\n- 加速: https://gh-proxy.com/https://github.com/${{ github.repository }}/releases/download/$ID-latest/$APK_NAME" \
             "/tmp/$APK_NAME"
 
           # ── 2. Versioned release ──
@@ -448,7 +459,18 @@ jobs:
           gh release create "$ID-$TAG_VERSION" \
             --repo ${{ github.repository }} \
             --title "$ID 去更新 $TAG_VERSION" \
-            --notes "构建时间: $(date -u '+%Y-%m-%d %H:%M UTC')\\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --notes "**📦 $ID 去更新 $TAG_VERSION**\
+\\n\
+\\n**版本:** $VERSION\
+\\n**构建时间:** $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')\
+\\n**Run:** [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})\
+\\n\
+\\n---\
+\\n\
+\\n**下载：**\
+\\n- Latest: https://github.com/${{ github.repository }}/releases/download/$ID-latest/$APK_NAME\
+\\n- Versioned: https://github.com/${{ github.repository }}/releases/download/$ID-$TAG_VERSION/$APK_NAME\
+\\n- 加速: https://gh-proxy.com/https://github.com/${{ github.repository }}/releases/download/$ID-latest/$APK_NAME" \
             "/tmp/$APK_NAME"
 
           echo ""
