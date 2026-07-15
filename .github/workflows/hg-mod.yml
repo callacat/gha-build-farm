@@ -160,6 +160,18 @@ jobs:
       - name: 🔍 Ultimate search — modder URL in smali
         run: python3 .github/scripts/hg-find-trigger.py
 
+      - name: 🔍 Analyze modder connection method for NOP
+        run: python3 .github/scripts/hg-nop-modder.py
+
+      - name: Upload modder method context
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: modder-method-context
+          path: /tmp/mainfragment_context.txt
+          compression-level: 0
+          retention-days: 7
+
       - name: Upload analysis result
         if: always()
         uses: actions/upload-artifact@v4
