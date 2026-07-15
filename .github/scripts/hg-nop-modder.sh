@@ -28,12 +28,14 @@ for i in $(seq $URL_LINE -1 1); do
   fi
 done
 
-# Find the .end method line
+# Find the .end method line — search entire rest of file
 END_LINE=""
-for i in $(seq $URL_LINE 1 $((URL_LINE + 2000))); do
+TOTAL_LINES=$(wc -l < "$FILE")
+for i in $(seq $URL_LINE 1 $TOTAL_LINES); do
   LINE=$(sed -n "${i}p" "$FILE" 2>/dev/null)
   [ -z "$LINE" ] && break
   if echo "$LINE" | grep -q "\.end method"; then
+    # Make sure this .end method matches our method depth
     END_LINE=$i
     break
   fi

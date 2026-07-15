@@ -264,7 +264,7 @@ jobs:
           retention-days: 7
 
       - name: NOP modder connection method (oneseeker) ← MUST run before domain poison
-        run: bash .github/scripts/hg-nop-modder.sh /tmp/apktool_out
+        run: python3 .github/scripts/hg-nop-modder.py /tmp/apktool_out
 
       - name: Apply domain poison patches
         run: python3 .github/scripts/hg-smali-patch.py /tmp/apktool_out
