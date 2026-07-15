@@ -87,7 +87,7 @@ jobs:
               echo "CACHE_TAG=$CACHE_TAG" >> $GITHUB_ENV
               if ! gh release view "$CACHE_TAG" --repo ${{ github.repository }} &>/dev/null; then
                 echo "Caching original APK..."
-                gh release create "$CACHE_TAG" --repo ${{ github.repository }} --title "$ID $VERSION original" "/tmp/$ID.apk" 2>/dev/null || true
+                gh release create "$CACHE_TAG" --repo ${{ github.repository }} --title "$ID $VERSION original" --notes "$ID $VERSION 原始APK" "/tmp/$ID.apk" 2>/dev/null || true
               fi
               ls -lh /tmp/$ID.apk
             fi
@@ -327,7 +327,7 @@ jobs:
               echo "CACHE_TAG=$CACHE_TAG" >> $GITHUB_ENV
               if ! gh release view "$CACHE_TAG" --repo ${{ github.repository }} &>/dev/null; then
                 echo "Caching original APK..."
-                gh release create "$CACHE_TAG" --repo ${{ github.repository }} --title "$ID $VERSION original" "/tmp/$ID.apk" 2>/dev/null || true
+                gh release create "$CACHE_TAG" --repo ${{ github.repository }} --title "$ID $VERSION original" --notes "$ID $VERSION 原始APK" "/tmp/$ID.apk" 2>/dev/null || true
               fi
               ls -lh /tmp/$ID.apk
               exit 0
@@ -433,24 +433,29 @@ jobs:
           TAG_VERSION="v${VERSION}"
           echo "Tag: $TAG_VERSION"
 
+          # ── Write release notes to temp file ──
+          cat > /tmp/release-notes.md << EOF
+**📦 $ID 去更新**
+
+**版本:** $VERSION
+**构建时间:** $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')
+**Run:** [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+---
+
+**下载：**
+- Latest: https://github.com/${{ github.repository }}/releases/download/$ID-latest/$APK_NAME
+- Versioned: https://github.com/${{ github.repository }}/releases/download/$ID-$TAG_VERSION/$APK_NAME
+- 加速: https://gh-proxy.com/https://github.com/${{ github.repository }}/releases/download/$ID-latest/$APK_NAME
+EOF
+
           # ── 1. Latest release (always newest) ──
           gh release delete "$ID-latest" --yes --repo ${{ github.repository }} 2>/dev/null || true
           git push --delete origin "$ID-latest" 2>/dev/null || true
           gh release create "$ID-latest" \
             --repo ${{ github.repository }} \
             --title "$ID 去更新 (latest)" \
-            --notes "**📦 $ID 去更新 (latest)**\
-\\n\
-\\n**版本:** $VERSION\
-\\n**构建时间:** $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')\
-\\n**Run:** [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})\
-\\n\
-\\n---\
-\\n\
-\\n**下载：**\
-\\n- Latest: https://github.com/${{ github.repository }}/releases/download/$ID-latest/$APK_NAME\
-\\n- Versioned: https://github.com/${{ github.repository }}/releases/download/$ID-$TAG_VERSION/$APK_NAME\
-\\n- 加速: https://gh-proxy.com/https://github.com/${{ github.repository }}/releases/download/$ID-latest/$APK_NAME" \
+            --notes-file /tmp/release-notes.md \
             "/tmp/$APK_NAME"
 
           # ── 2. Versioned release ──
@@ -459,18 +464,7 @@ jobs:
           gh release create "$ID-$TAG_VERSION" \
             --repo ${{ github.repository }} \
             --title "$ID 去更新 $TAG_VERSION" \
-            --notes "**📦 $ID 去更新 $TAG_VERSION**\
-\\n\
-\\n**版本:** $VERSION\
-\\n**构建时间:** $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')\
-\\n**Run:** [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})\
-\\n\
-\\n---\
-\\n\
-\\n**下载：**\
-\\n- Latest: https://github.com/${{ github.repository }}/releases/download/$ID-latest/$APK_NAME\
-\\n- Versioned: https://github.com/${{ github.repository }}/releases/download/$ID-$TAG_VERSION/$APK_NAME\
-\\n- 加速: https://gh-proxy.com/https://github.com/${{ github.repository }}/releases/download/$ID-latest/$APK_NAME" \
+            --notes-file /tmp/release-notes.md \
             "/tmp/$APK_NAME"
 
           echo ""
