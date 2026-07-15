@@ -30,7 +30,7 @@ done
 
 # Find the .end method line
 END_LINE=""
-for i in $(seq $URL_LINE 1 $((URL_LINE + 200))); do
+for i in $(seq $URL_LINE 1 $((URL_LINE + 2000))); do
   LINE=$(sed -n "${i}p" "$FILE" 2>/dev/null)
   [ -z "$LINE" ] && break
   if echo "$LINE" | grep -q "\.end method"; then
@@ -49,12 +49,15 @@ echo "  Method spans lines $METHOD_LINE-$END_LINE"
 # NOP: keep method sig, replace body with minimal return
 {
   sed -n "1,${METHOD_LINE}p" "$FILE"
-  echo "    .locals 0"
+  echo "    .locals 1"
   if [ "$DESCR" = "V" ]; then
     echo "    return-void  # disabled"
+  elif [ "$DESCR" = "L" ]; then
+    echo "    const/4 v0, 0x0"
+    echo "    return-object v0  # disabled (null)"
   else
     echo "    const/4 v0, 0x0"
-    echo "    return v0  # disabled (false/0/null)"
+    echo "    return v0  # disabled (false/0)"
   fi
   echo ".end method"
   sed -n "$((END_LINE + 1)),\$p" "$FILE"
