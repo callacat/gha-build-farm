@@ -47,24 +47,27 @@ for f in sorted(APK.rglob("*.smali")):
     if m_end is None:
         print("  [FAIL] No .end method found"); continue
 
-    # Extract return type from method signature
-    ret_match = re.search(r'\)\(([^)]+)$', m_name)
-    ret_type = ret_match.group(1) if ret_match else "V"
+    # Extract return type from method signature: grab everything after last ')'
+    paren_idx = m_name.rfind(")")
+    ret_type = m_name[paren_idx + 1:].strip() if paren_idx > 0 else "V"
+    # smali return types can have trailing ";" for object types
+    ret_type = ret_type.rstrip(";")
 
     print(f"  Method ({m_start+1}-{m_end+1}): {m_name}")
     print(f"  Return type: {ret_type}")
 
-    # NOP the method body
+    # NOP the method body: keep original .end method in place
     header = lines[:m_start + 1]
     if ret_type == "V":
         body = ["    .locals 0\n", "    return-void  # oneseeker disabled\n"]
-    elif ret_type == "L" or ret_type.startswith("L"):
+    elif ret_type in ("L",) or ret_type.startswith("L") or ret_type.startswith("["):
         body = ["    .locals 1\n", "    const/4 v0, 0x0\n", "    return-object v0  # null\n"]
-    elif ret_type == "Z":
-        body = ["    .locals 0\n", "    const/4 v0, 0x0\n", "    return v0  # false\n"]
+    elif ret_type in ("J", "D"):
+        body = ["    .locals 2\n", "    const-wide/16 v0, 0x0\n", "    return-wide v0  # disabled\n"]
     else:
-        body = ["    .locals 0\n", "    const/4 v0, 0x0\n", f"    return v0  # disabled\n"]
-    footer = lines[m_end + 1:]
+        body = ["    .locals 1\n", "    const/4 v0, 0x0\n", "    return v0  # disabled\n"]
+    # Keep original .end method line — body does NOT include .end method
+    footer = lines[m_end:]
 
     new_text = "".join(header + body + footer)
     f.write_text(new_text, encoding="utf-8")
