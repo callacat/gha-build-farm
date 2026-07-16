@@ -401,6 +401,26 @@ jobs:
       - name: Search update UI and network triggers
         run: timeout 120 bash .github/scripts/hg-search-update-ui.sh /tmp/apktool_out || true
 
+      - name: 🔍 Pre-removal scan (鹿属 dialog)
+        run: |
+          echo "=== org/checkerframework/checker/signature/query/security (鹿属弹窗) ==="
+          find /tmp/apktool_out/smali* -path '*/org/checkerframework/checker/signature/query/security' -type d 2>/dev/null || echo "(not found)"
+          echo "=== sgcore0 (SafeLoader) ==="
+          find /tmp/apktool_out/smali* -path '*/sgcore0' -type d 2>/dev/null || echo "(not found)"
+          echo "=== libseccore.so ==="
+          find /tmp/apktool_out -name 'libseccore.so' -type f 2>/dev/null || echo "(not found)"
+
+      - name: 🗑️ Remove 鹿属 group dialog (软件使用声明/加入交流群)
+        run: python3 .github/scripts/hg-remove-group-dialog.py /tmp/apktool_out
+
+      - name: 🔍 Post-removal verification
+        run: |
+          REMAINING=$(find /tmp/apktool_out -name '*.smali' -path '*/org/checkerframework/checker/signature/query/security/*' 2>/dev/null | head -5)
+          if [ -n "$REMAINING" ]; then echo "❌ 仍有残留 smali"; echo "$REMAINING"; exit 1; fi
+          REMAINING_SO=$(find /tmp/apktool_out -name 'libseccore.so' 2>/dev/null | head -5)
+          if [ -n "$REMAINING_SO" ]; then echo "❌ 仍有残留 .so"; echo "$REMAINING_SO"; exit 1; fi
+          echo "✅ 鹿属弹窗已完整清除"
+
       - name: Rebuild APK
         run: |
           python3 .github/scripts/fix-public-xml.py
@@ -445,6 +465,9 @@ jobs:
           echo "**📦 $ID 去更新**" >> /tmp/release-notes.md
           echo "" >> /tmp/release-notes.md
           echo "**版本:** $VERSION" >> /tmp/release-notes.md
+          echo "**修改内容:**" >> /tmp/release-notes.md
+          echo "- 去除更新弹窗（强制更新/版本检查）" >> /tmp/release-notes.md
+          echo "- 去除鹿属软件使用声明/邀请加入群聊弹窗" >> /tmp/release-notes.md
           echo "**构建时间:** $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')" >> /tmp/release-notes.md
           echo "**Run:** [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> /tmp/release-notes.md
           echo "" >> /tmp/release-notes.md
