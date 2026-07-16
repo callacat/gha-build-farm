@@ -718,7 +718,6 @@ jobs:
           echo "- 删除广告 SDK（穿山甲/LuckyCat/百度/快手/灵谋）" >> /tmp/release-notes.md
           echo "- 删除推送 SDK（小米/华为/vivo/oppo/荣耀）" >> /tmp/release-notes.md
           echo "- 精简权限（仅保留网络/存储/前台服务）" >> /tmp/release-notes.md
-          echo "- 清空签名校验字符串（不显示'当前版本不安全'弹窗）" >> /tmp/release-notes.md
           echo "" >> /tmp/release-notes.md
           echo "---" >> /tmp/release-notes.md
           echo "" >> /tmp/release-notes.md
