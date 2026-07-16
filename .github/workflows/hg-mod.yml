@@ -400,12 +400,8 @@ jobs:
 
       - name: Rebuild APK
         run: |
-          # Fix invalid resource types that aapt2 can't compile
-          grep -l 'invalid' /tmp/apktool_out/res/values/public.xml 2>/dev/null | while read f; do
-            echo "⚠️  修复 $f 中的 invalid 资源类型..."
-            sed -i '/<public .* type="invalid/d' "$f"
-          done
-          /opt/apktool b /tmp/apktool_out -o /tmp/${{ inputs.app_id }}-unsigned.apk 2>&1 | tail -10
+          python3 .github/scripts/fix-public-xml.py
+          /opt/apktool b /tmp/apktool_out -o /tmp/${{ inputs.app_id }}-unsigned.apk 2>&1
           ls -lh /tmp/${{ inputs.app_id }}-unsigned.apk
 
       - name: Sign APK (v2/v3 zipalign + apksigner)
@@ -653,12 +649,8 @@ jobs:
 
       - name: Rebuild APK
         run: |
-          # Fix invalid resource types that aapt2 can't compile
-          grep -l 'invalid' /tmp/apktool_out/res/values/public.xml 2>/dev/null | while read f; do
-            echo "⚠️  修复 $f 中的 invalid 资源类型..."
-            sed -i '/<public .* type="invalid/d' "$f"
-          done
-          /opt/apktool b /tmp/apktool_out -o /tmp/${{ inputs.app_id }}-unsigned.apk 2>&1 | tail -10
+          python3 .github/scripts/fix-public-xml.py
+          /opt/apktool b /tmp/apktool_out -o /tmp/${{ inputs.app_id }}-unsigned.apk 2>&1
           ls -lh /tmp/${{ inputs.app_id }}-unsigned.apk
 
       - name: Sign APK (v2/v3 zipalign + apksigner)
