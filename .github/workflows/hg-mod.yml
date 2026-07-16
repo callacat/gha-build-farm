@@ -400,7 +400,13 @@ jobs:
 
       - name: Rebuild APK
         run: |
-          /opt/apktool b /tmp/apktool_out -o /tmp/${{ inputs.app_id }}-unsigned.apk 2>&1 | tail -10
+          AAPT1=$(find $ANDROID_HOME/build-tools -name "aapt" ! -name "aapt2" 2>/dev/null | head -1)
+          if [ -n "$AAPT1" ]; then
+            echo "Using aapt1 for rebuild (avoids invalid resource type errors)"
+            /opt/apktool b /tmp/apktool_out -o /tmp/${{ inputs.app_id }}-unsigned.apk -a "$AAPT1" 2>&1 | tail -10
+          else
+            /opt/apktool b /tmp/apktool_out -o /tmp/${{ inputs.app_id }}-unsigned.apk 2>&1 | tail -10
+          fi
           ls -lh /tmp/${{ inputs.app_id }}-unsigned.apk
 
       - name: Sign APK (v2/v3 zipalign + apksigner)
@@ -648,7 +654,13 @@ jobs:
 
       - name: Rebuild APK
         run: |
-          /opt/apktool b /tmp/apktool_out -o /tmp/${{ inputs.app_id }}-unsigned.apk 2>&1 | tail -10
+          AAPT1=$(find $ANDROID_HOME/build-tools -name "aapt" ! -name "aapt2" 2>/dev/null | head -1)
+          if [ -n "$AAPT1" ]; then
+            echo "Using aapt1 for rebuild (avoids invalid resource type errors)"
+            /opt/apktool b /tmp/apktool_out -o /tmp/${{ inputs.app_id }}-unsigned.apk -a "$AAPT1" 2>&1 | tail -10
+          else
+            /opt/apktool b /tmp/apktool_out -o /tmp/${{ inputs.app_id }}-unsigned.apk 2>&1 | tail -10
+          fi
           ls -lh /tmp/${{ inputs.app_id }}-unsigned.apk
 
       - name: Sign APK (v2/v3 zipalign + apksigner)
