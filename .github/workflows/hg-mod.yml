@@ -9,8 +9,9 @@ on:
         required: true
         default: 'hg'
       apk_url:
-        description: 'APK 下载地址'
-        required: true
+        description: 'APK 下载地址（可留空，优先使用 Release 缓存）'
+        required: false
+        default: ''
       workflow:
         description: '选择工作流：analysis=分析，patch=去黑产弹窗，remove-ads=去广告'
         required: true
