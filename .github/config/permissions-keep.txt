@@ -6,3 +6,4 @@ android.permission.READ_EXTERNAL_STORAGE
 android.permission.FOREGROUND_SERVICE
 android.permission.REQUEST_INSTALL_PACKAGES
 android.permission.POST_NOTIFICATIONS
+android.permission.GET_ACCOUNTS
