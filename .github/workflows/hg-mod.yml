@@ -12,13 +12,14 @@ on:
         description: 'APK 下载地址'
         required: true
       workflow:
-        description: '分析(analysis) 或 打补丁(patch)'
+        description: '选择工作流：analysis=分析，patch=去黑产弹窗，remove-ads=去广告'
         required: true
         default: 'analysis'
         type: choice
         options:
           - analysis
           - patch
+          - remove-ads
 
   push:
     branches: [main]
@@ -90,6 +91,7 @@ jobs:
                 gh release create "$CACHE_TAG" --repo ${{ github.repository }} --title "$ID $VERSION original" --notes "$ID $VERSION 原始APK" "/tmp/$ID.apk" 2>/dev/null || true
               fi
               ls -lh /tmp/$ID.apk
+              exit 0
             fi
             echo "URL download failed ($SIZE bytes), trying release cache..."
           fi
@@ -510,6 +512,211 @@ jobs:
               "$ID" "$RUN_URL" "$DOWNLOAD_URL" "$GH_PROXY")
           else
             MSG=$(printf '❌ %s patch 构建失败\nRun: %s' "$ID" "$RUN_URL")
+          fi
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_BOT_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TG_CHAT_ID }}" \
+            -d "text=$MSG" \
+            -d "parse_mode=HTML" || true
+
+      - name: Clean old runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ secrets.PAT }}
+          retain_days: 0
+          keep_minimum_runs: 5
+
+  remove_ads:
+    if: ${{ inputs.workflow == 'remove-ads' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Install apktool
+        run: |
+          curl -sL "https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar" -o /opt/apktool.jar
+          printf '#!/bin/bash\njava -jar /opt/apktool.jar "$@"\n' > /opt/apktool && chmod +x /opt/apktool
+
+      - name: Install signing tools
+        run: |
+          keytool -genkey -v -keystore /tmp/debug.keystore -alias androiddebugkey \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass android -keypass android \
+            -dname "CN=Android Debug, O=Android, C=US" 2>/dev/null
+          SDK=/usr/local/lib/android/sdk; [ -d "$SDK" ] || SDK=$ANDROID_HOME
+          BADGING=$(find "$SDK" -name aapt2 2>/dev/null | head -1)
+          if [ -n "$BADGING" ]; then echo "AAPT2=$BADGING" >> $GITHUB_ENV; fi
+
+      - name: 📦 Fetch APK
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
+        run: |
+          ID="${{ inputs.app_id }}"
+          if [ -n "$APK_URL" ]; then
+            echo "Downloading from URL..."
+            curl -sL --max-time 300 "$APK_URL" -o /tmp/$ID.apk
+            SIZE=$(stat -c%s /tmp/$ID.apk 2>/dev/null || echo 0)
+            if [ "$SIZE" -gt 1024 ]; then
+              SDK=/usr/local/lib/android/sdk; [ -d "$SDK" ] || SDK=$ANDROID_HOME
+              BADGING=$(find "$SDK" -name aapt2 2>/dev/null | head -1)
+              if [ -n "$BADGING" ]; then
+                VERSION=$($BADGING dump badging /tmp/$ID.apk 2>/dev/null | grep -oP "versionName='[^']+'" | sed "s/versionName='//;s/'//")
+              fi
+              VERSION="${VERSION:-unknown}"
+              echo "APK version: $VERSION"
+              echo "CACHED_VERSION=$VERSION" >> $GITHUB_ENV
+              echo "✅ Downloaded $ID v$VERSION ($SIZE bytes)"
+              ls -lh /tmp/$ID.apk
+              exit 0
+            fi
+            echo "URL download failed ($SIZE bytes), trying release cache..."
+          fi
+
+          CACHE_TAG=$(gh release list --repo ${{ github.repository }} --json tagName \
+            | python3 -c "import sys,json;rels=json.load(sys.stdin);tags=[r['tagName'] for r in rels if r['tagName'].startswith('$ID-original-')];print(max(tags) if tags else '')" 2>/dev/null)
+          if [ -n "$CACHE_TAG" ]; then
+            echo "Found cache: $CACHE_TAG"
+            gh release download "$CACHE_TAG" --repo ${{ github.repository }} --pattern "*.apk" --dir /tmp --clobber 2>/dev/null
+            mv /tmp/*.apk /tmp/$ID.apk 2>/dev/null || true
+            VERSION=$(echo "$CACHE_TAG" | sed 's/^$ID-original-//')
+            echo "CACHED_VERSION=$VERSION" >> $GITHUB_ENV
+            ls -lh /tmp/$ID.apk
+          else
+            echo "No cached APK. Provide APK_URL."
+            exit 1
+          fi
+
+      - name: apktool decode
+        run: |
+          /opt/apktool d /tmp/${{ inputs.app_id }}.apk -o /tmp/apktool_out -f --use-aapt2 2>&1 | tail -5
+          echo "=== smali files ==="
+          find /tmp/apktool_out -name '*.smali' | wc -l
+
+      - name: 📋 Pre-removal SDK scan
+        run: |
+          echo "=== 广告 SDK 扫描 ==="
+          for pkg in com/bytedance/pangle com/bytedance/sdk/openadsdk com/luckycat com/baidu/mobads com/sigmob com/kuaishou com/pgl com/bytedance/sys; do
+            pkg_path=$(echo "$pkg" | tr '.' '/')
+            count=$(find /tmp/apktool_out/smali*/$pkg_path -name '*.smali' 2>/dev/null | wc -l)
+            if [ "$count" -gt 0 ]; then echo "  ✅ $pkg: $count files"; else echo "  ❌ $pkg: not found"; fi
+          done
+          echo ""
+          echo "=== 推送 SDK 扫描 ==="
+          for pkg in com/xiaomi/push com/huawei/hms com/hihonor/push com/vivo/push com/oppo/push com/bytedance/push; do
+            pkg_path=$(echo "$pkg" | tr '.' '/')
+            count=$(find /tmp/apktool_out/smali*/$pkg_path -name '*.smali' 2>/dev/null | wc -l)
+            if [ "$count" -gt 0 ]; then echo "  ✅ $pkg: $count files"; else echo "  ❌ $pkg: not found"; fi
+          done
+
+      - name: 🧹 Remove ad SDKs + push + permissions
+        run: |
+          python3 .github/scripts/hg-remove-ads.py \
+            --source /tmp/apktool_out \
+            --ad-config .github/config/ad-removal.json \
+            --push-config .github/config/push-removal.json \
+            --permissions-keep .github/config/permissions-keep.txt
+
+      - name: 📋 Post-removal verification
+        run: |
+          echo "=== 残留广告 SDK 检查（应为 0） ==="
+          for pkg in com/luckycat com/baidu/mobads com/sigmob com/kuaishou com/pgl com/luckystar; do
+            pkg_path=$(echo "$pkg" | tr '.' '/')
+            count=$(find /tmp/apktool_out/smali*/$pkg_path -name '*.smali' 2>/dev/null | wc -l)
+            echo "  $pkg: $count files"
+          done
+          echo ""
+          echo "=== ByteDance SDK 保留确认（应 > 0，走 init 打桩） ==="
+          for pkg in com/bytedance/sdk/openadsdk com/bytedance/pangle; do
+            pkg_path=$(echo "$pkg" | tr '.' '/')
+            count=$(find /tmp/apktool_out/smali*/$pkg_path -name '*.smali' 2>/dev/null | wc -l)
+            echo "  $pkg: $count files"
+          done
+
+      - name: Rebuild APK
+        run: |
+          /opt/apktool b /tmp/apktool_out -o /tmp/${{ inputs.app_id }}-unsigned.apk --copy-original 2>&1 | tail -10
+          ls -lh /tmp/${{ inputs.app_id }}-unsigned.apk
+
+      - name: Sign APK (v2/v3 zipalign + apksigner)
+        run: |
+          SDK=/usr/local/lib/android/sdk; [ -d "$SDK" ] || SDK=$ANDROID_HOME
+          BT=$(find "$SDK/build-tools" -maxdepth 1 -type d | sort -Vr | head -1)
+
+          zip -d /tmp/${{ inputs.app_id }}-unsigned.apk 'META-INF/*.SF' 'META-INF/*.RSA' 'META-INF/*.DSA' 'META-INF/MANIFEST.MF' 2>/dev/null || true
+          $BT/zipalign -v -p 4 /tmp/${{ inputs.app_id }}-unsigned.apk /tmp/${{ inputs.app_id }}-aligned.apk 2>&1 | tail -2
+          $BT/apksigner sign --ks /tmp/debug.keystore --ks-pass pass:android \
+            --ks-key-alias androiddebugkey \
+            --v2-signing-enabled true --v3-signing-enabled true \
+            --out /tmp/${{ inputs.app_id }}-signed.apk /tmp/${{ inputs.app_id }}-aligned.apk 2>&1 | tail -5
+          $BT/apksigner verify --verbose /tmp/${{ inputs.app_id }}-signed.apk 2>&1 | head -15
+
+          VERSION="${CACHED_VERSION:-$(grep -oP 'versionName="[^"]*"' /tmp/apktool_out/AndroidManifest.xml 2>/dev/null | sed 's/versionName="//;s/"//')}"
+          APK_NAME="${{ inputs.app_id }}-clean-${VERSION:-modified}.apk"
+          cp /tmp/${{ inputs.app_id }}-signed.apk "/tmp/$APK_NAME"
+          echo "APK_NAME=$APK_NAME" >> $GITHUB_ENV
+          echo "APK_VERSION=${VERSION:-unknown}" >> $GITHUB_ENV
+          ls -lh "/tmp/$APK_NAME"
+
+      - name: Upload to Release
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
+        run: |
+          ID="${{ inputs.app_id }}"
+          VERSION="${APK_VERSION:-unknown}"
+          APK_NAME="${APK_NAME:-$ID-clean.apk}"
+          TAG_VERSION="v${VERSION}"
+
+          rm -f /tmp/release-notes.md
+          echo "**📦 $ID 去广告版**" >> /tmp/release-notes.md
+          echo "" >> /tmp/release-notes.md
+          echo "**版本:** $VERSION" >> /tmp/release-notes.md
+          echo "**构建时间:** $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')" >> /tmp/release-notes.md
+          echo "" >> /tmp/release-notes.md
+          echo "**修改内容:**" >> /tmp/release-notes.md
+          echo "- 删除广告 SDK（穿山甲/LuckyCat/百度/快手/灵谋）" >> /tmp/release-notes.md
+          echo "- 删除推送 SDK（小米/华为/vivo/oppo/字节）" >> /tmp/release-notes.md
+          echo "- 精简权限（仅保留网络/存储/前台服务）" >> /tmp/release-notes.md
+
+          # Latest release
+          gh release delete "$ID-clean-latest" --yes --repo ${{ github.repository }} 2>/dev/null || true
+          git push --delete origin "$ID-clean-latest" 2>/dev/null || true
+          gh release create "$ID-clean-latest" \
+            --repo ${{ github.repository }} \
+            --title "$ID 去广告 (latest)" \
+            --notes-file /tmp/release-notes.md \
+            "/tmp/$APK_NAME"
+
+          # Versioned release
+          gh release delete "$ID-clean-$TAG_VERSION" --yes --repo ${{ github.repository }} 2>/dev/null || true
+          git push --delete origin "$ID-clean-$TAG_VERSION" 2>/dev/null || true
+          gh release create "$ID-clean-$TAG_VERSION" \
+            --repo ${{ github.repository }} \
+            --title "$ID 去广告 $TAG_VERSION" \
+            --notes-file /tmp/release-notes.md \
+            "/tmp/$APK_NAME"
+
+          echo "✅ 下载链接:"
+          echo "  Latest: https://github.com/${{ github.repository }}/releases/download/$ID-clean-latest/$APK_NAME"
+          echo "  加速: https://gh-proxy.com/https://github.com/${{ github.repository }}/releases/download/$ID-clean-latest/$APK_NAME"
+
+      - name: Notify completion
+        if: always()
+        run: |
+          STATUS="${{ job.status }}"
+          ID="${{ inputs.app_id }}"
+          APK_NAME="${APK_NAME:-$ID-clean.apk}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/$ID-clean-latest/$APK_NAME"
+          GH_PROXY="https://gh-proxy.com/${DOWNLOAD_URL}"
+          if [ "$STATUS" = "success" ]; then
+            MSG=$(printf '✅ %s 去广告构建成功\nRun: %s\n直链: %s\n加速: %s' \
+              "$ID" "$RUN_URL" "$DOWNLOAD_URL" "$GH_PROXY")
+          else
+            MSG=$(printf '❌ %s 去广告构建失败\nRun: %s' "$ID" "$RUN_URL")
           fi
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_BOT_TOKEN }}/sendMessage" \
             -d "chat_id=${{ secrets.TG_CHAT_ID }}" \
