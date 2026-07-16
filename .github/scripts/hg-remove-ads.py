@@ -299,12 +299,30 @@ def main() -> int:
     else:
         print("  (sdk_init_methods 为空，跳过)")
 
-    # ---- Phase 3: 删除推送 SDK 包目录 ----
+    # ---- Phase 3: 删除推送 SDK 包目录 + 清理 Manifest 声明 ----
     print("\n=== Phase 3: 删除推送 SDK 包目录 ===")
     push_packages = push_config.get("push_packages", [])
     if push_packages:
         n = delete_directories(source, push_packages)
         print(f"  → 删除 {n} 个推送包目录")
+
+        # 同步清理 Manifest 中对应的 <provider>/<receiver>/<service> 声明
+        if manifest:
+            # 从 Manifest 中找到所有属于已删除包的组件
+            manifest_content = manifest.read_text(encoding="utf-8")
+            comp_pattern = re.compile(
+                r'<(receiver|service|provider)\s+[^>]*?android:name\s*=\s*"([^"]*)"',
+                re.DOTALL,
+            )
+            push_prefixes = [pkg.replace("/", ".") for pkg in push_packages]
+            to_remove = []
+            for m in comp_pattern.finditer(manifest_content):
+                comp_name = m.group(2)
+                if any(comp_name.startswith(prefix) for prefix in push_prefixes):
+                    to_remove.append(comp_name)
+            if to_remove:
+                print(f"  → 清理 Manifest 中 {len(to_remove)} 个推送组件声明")
+                remove_manifest_components(manifest, to_remove)
     else:
         print("  (push_packages 为空，跳过)")
 
