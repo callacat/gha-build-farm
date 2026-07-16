@@ -9,7 +9,7 @@ on:
         required: true
         default: 'hg'
       apk_url:
-        description: 'APK 下载地址（可留空，优先使用 Release 缓存）'
+        description: 'APK 下载地址（可留空，优先使用 URL，再 Fallback Release 缓存）'
         required: false
         default: ''
       workflow:
@@ -70,7 +70,33 @@ jobs:
         run: |
           ID="${{ inputs.app_id }}"
 
-          # Step 1: check release cache first (much faster than downloading from URL)
+          # Step 1: try downloading from URL if provided
+          if [ -n "$APK_URL" ]; then
+            echo "Downloading from URL..."
+            curl -sL --max-time 300 "$APK_URL" -o /tmp/$ID.apk
+            SIZE=$(stat -c%s /tmp/$ID.apk 2>/dev/null || echo 0)
+            if [ "$SIZE" -gt 1024 ]; then
+              SDK=/usr/local/lib/android/sdk; [ -d "$SDK" ] || SDK=$ANDROID_HOME
+              BADGING=$(find "$SDK" -name aapt2 2>/dev/null | head -1)
+              if [ -n "$BADGING" ]; then
+                VERSION=$($BADGING dump badging /tmp/$ID.apk 2>/dev/null | grep -oP "versionName='[^']+'" | sed "s/versionName='//;s/'//")
+              fi
+              VERSION="${VERSION:-unknown}"
+              echo "CACHED_VERSION=$VERSION" >> $GITHUB_ENV
+              CACHE_TAG="$ID-original-$VERSION"
+              echo "CACHE_TAG=$CACHE_TAG" >> $GITHUB_ENV
+              if ! gh release view "$CACHE_TAG" --repo ${{ github.repository }} &>/dev/null; then
+                echo "Caching original APK..."
+                gh release create "$CACHE_TAG" --repo ${{ github.repository }} --title "$ID $VERSION original" --notes "$ID $VERSION 原始APK" "/tmp/$ID.apk" 2>/dev/null || true
+              fi
+              echo "✅ Downloaded $ID v$VERSION ($SIZE bytes)"
+              ls -lh /tmp/$ID.apk
+              exit 0
+            fi
+          fi
+
+          # Step 2: fallback to release cache
+          echo "Trying release cache..."
           CACHE_TAG=$(gh release list --repo ${{ github.repository }} -L 30 --json tagName \
             | python3 -c "import sys,json;rels=json.load(sys.stdin);tags=[r['tagName'] for r in rels if r['tagName'].startswith('$ID-original-')];print(max(tags) if tags else '')" 2>/dev/null)
           if [ -n "$CACHE_TAG" ]; then
@@ -86,33 +112,7 @@ jobs:
             exit 0
           fi
 
-          # Step 2: no cache — download from URL
-          if [ -n "$APK_URL" ]; then
-            echo "Downloading from URL..."
-            curl -sL --max-time 300 "$APK_URL" -o /tmp/$ID.apk
-            SIZE=$(stat -c%s /tmp/$ID.apk 2>/dev/null || echo 0)
-            if [ "$SIZE" -gt 1024 ]; then
-              SDK=/usr/local/lib/android/sdk; [ -d "$SDK" ] || SDK=$ANDROID_HOME
-              BADGING=$(find "$SDK" -name aapt2 2>/dev/null | head -1)
-              if [ -n "$BADGING" ]; then
-                VERSION=$($BADGING dump badging /tmp/$ID.apk 2>/dev/null | grep -oP "versionName='[^']+'" | sed "s/versionName='//;s/'//")
-              fi
-              VERSION="${VERSION:-unknown}"
-              echo "APK version: $VERSION"
-              echo "CACHED_VERSION=$VERSION" >> $GITHUB_ENV
-              CACHE_TAG="$ID-original-$VERSION"
-              echo "CACHE_TAG=$CACHE_TAG" >> $GITHUB_ENV
-              if ! gh release view "$CACHE_TAG" --repo ${{ github.repository }} &>/dev/null; then
-                echo "Caching original APK..."
-                gh release create "$CACHE_TAG" --repo ${{ github.repository }} --title "$ID $VERSION original" --notes "$ID $VERSION 原始APK" "/tmp/$ID.apk" 2>/dev/null || true
-              fi
-              echo "✅ Downloaded $ID v$VERSION ($SIZE bytes)"
-              ls -lh /tmp/$ID.apk
-              exit 0
-            fi
-          fi
-
-          echo "❌ No cache and URL download failed. Provide APK_URL."
+          echo "❌ No cache or URL download failed. Provide APK_URL."
           exit 1
 
       - name: jadx decompile (Java)
@@ -221,6 +221,9 @@ jobs:
 
       - name: 🔍 Ultimate search — modder URL in smali
         run: python3 .github/scripts/hg-find-trigger.py
+
+      - name: 🔍 Search for third-party group dialog (鹿属/软件使用声明)
+        run: python3 .github/scripts/hg-find-group-dialog.py
 
       - name: 🔍 Analyze modder connection method for NOP
         run: python3 .github/scripts/hg-nop-modder.py
