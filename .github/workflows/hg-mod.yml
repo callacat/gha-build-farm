@@ -123,7 +123,7 @@ jobs:
 
       - name: apktool decode
         run: |
-          /opt/apktool d /tmp/${{ inputs.app_id }}.apk -o /tmp/apktool_out -f --use-aapt2 2>&1 | tail -3
+          /opt/apktool d /tmp/${{ inputs.app_id }}.apk -o /tmp/apktool_out -f 2>&1 | tail -3
           echo "=== smali files ==="
           find /tmp/apktool_out -name '*.smali' | wc -l
 
@@ -592,7 +592,7 @@ jobs:
 
       - name: apktool decode
         run: |
-          /opt/apktool d /tmp/${{ inputs.app_id }}.apk -o /tmp/apktool_out -f --use-aapt2 2>&1 | tail -5
+          /opt/apktool d /tmp/${{ inputs.app_id }}.apk -o /tmp/apktool_out -f 2>&1 | tail -5
           echo "=== smali files ==="
           find /tmp/apktool_out -name '*.smali' | wc -l
 
