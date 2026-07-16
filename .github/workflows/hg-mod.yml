@@ -716,8 +716,15 @@ jobs:
           echo "" >> /tmp/release-notes.md
           echo "**修改内容:**" >> /tmp/release-notes.md
           echo "- 删除广告 SDK（穿山甲/LuckyCat/百度/快手/灵谋）" >> /tmp/release-notes.md
-          echo "- 删除推送 SDK（小米/华为/vivo/oppo/字节）" >> /tmp/release-notes.md
+          echo "- 删除推送 SDK（小米/华为/vivo/oppo/荣耀）" >> /tmp/release-notes.md
           echo "- 精简权限（仅保留网络/存储/前台服务）" >> /tmp/release-notes.md
+          echo "- 清空签名校验字符串（不显示'当前版本不安全'弹窗）" >> /tmp/release-notes.md
+          echo "" >> /tmp/release-notes.md
+          echo "---" >> /tmp/release-notes.md
+          echo "" >> /tmp/release-notes.md
+          echo "**下载：**" >> /tmp/release-notes.md
+          echo "- 直链: https://github.com/${{ github.repository }}/releases/download/$ID-clean-latest/$APK_NAME" >> /tmp/release-notes.md
+          echo "- 加速: https://gh-proxy.com/https://github.com/${{ github.repository }}/releases/download/$ID-clean-latest/$APK_NAME" >> /tmp/release-notes.md
 
           # Latest release
           gh release delete "$ID-clean-latest" --yes --repo ${{ github.repository }} 2>/dev/null || true
