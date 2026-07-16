@@ -63,19 +63,34 @@ jobs:
           curl -sL "https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar" -o /opt/apktool.jar
           printf '#!/bin/bash\njava -jar /opt/apktool.jar "$@"\n' > /opt/apktool && chmod +x /opt/apktool
 
-      - name: 📦 Fetch APK (download or release cache)
+      - name: 📦 Fetch APK (release cache preferred)
         env:
           GH_TOKEN: ${{ secrets.PAT }}
         run: |
           ID="${{ inputs.app_id }}"
 
-          # Step 1: try downloading from URL
+          # Step 1: check release cache first (much faster than downloading from URL)
+          CACHE_TAG=$(gh release list --repo ${{ github.repository }} -L 30 --json tagName \
+            | python3 -c "import sys,json;rels=json.load(sys.stdin);tags=[r['tagName'] for r in rels if r['tagName'].startswith('$ID-original-')];print(max(tags) if tags else '')" 2>/dev/null)
+          if [ -n "$CACHE_TAG" ]; then
+            echo "📦 Using release cache: $CACHE_TAG"
+            gh release download "$CACHE_TAG" --repo ${{ github.repository }} --pattern "*.apk" --dir /tmp --clobber 2>/dev/null
+            mv /tmp/*.apk /tmp/$ID.apk 2>/dev/null || true
+            VERSION=$(echo "$CACHE_TAG" | sed 's/^$ID-original-//')
+            echo "CACHED_VERSION=$VERSION" >> $GITHUB_ENV
+            echo "CACHE_TAG=$CACHE_TAG" >> $GITHUB_ENV
+            echo "✅ Using $ID v$VERSION from release cache"
+            ls -lh /tmp/$ID.apk
+            file /tmp/$ID.apk
+            exit 0
+          fi
+
+          # Step 2: no cache — download from URL
           if [ -n "$APK_URL" ]; then
             echo "Downloading from URL..."
             curl -sL --max-time 300 "$APK_URL" -o /tmp/$ID.apk
             SIZE=$(stat -c%s /tmp/$ID.apk 2>/dev/null || echo 0)
             if [ "$SIZE" -gt 1024 ]; then
-              # Extract version from binary AndroidManifest using aapt2
               SDK=/usr/local/lib/android/sdk; [ -d "$SDK" ] || SDK=$ANDROID_HOME
               BADGING=$(find "$SDK" -name aapt2 2>/dev/null | head -1)
               if [ -n "$BADGING" ]; then
@@ -90,29 +105,14 @@ jobs:
                 echo "Caching original APK..."
                 gh release create "$CACHE_TAG" --repo ${{ github.repository }} --title "$ID $VERSION original" --notes "$ID $VERSION 原始APK" "/tmp/$ID.apk" 2>/dev/null || true
               fi
+              echo "✅ Downloaded $ID v$VERSION ($SIZE bytes)"
               ls -lh /tmp/$ID.apk
               exit 0
             fi
-            echo "URL download failed ($SIZE bytes), trying release cache..."
           fi
 
-          # Step 2: URL failed — find cached original by scanning releases
-          echo "Scanning release cache for $ID original APKs..."
-          CACHE_TAG=$(gh release list --repo ${{ github.repository }} --json tagName,isLatest \
-            | python3 -c "import sys,json;rels=json.load(sys.stdin);tags=[r['tagName'] for r in rels if r['tagName'].startswith('$ID-original-')];print(max(tags) if tags else '')" 2>/dev/null)
-          if [ -n "$CACHE_TAG" ]; then
-            echo "Found cache: $CACHE_TAG"
-            gh release download "$CACHE_TAG" --repo ${{ github.repository }} --pattern "*.apk" --dir /tmp --clobber 2>/dev/null
-            mv /tmp/*.apk /tmp/$ID.apk 2>/dev/null || true
-            VERSION=$(echo "$CACHE_TAG" | sed 's/^$ID-original-//')
-            echo "CACHED_VERSION=$VERSION" >> $GITHUB_ENV
-            echo "CACHE_TAG=$CACHE_TAG" >> $GITHUB_ENV
-            ls -lh /tmp/$ID.apk
-            file /tmp/$ID.apk
-          else
-            echo "No cached original found. Provide a valid APK_URL."
-            exit 1
-          fi
+          echo "❌ No cache and URL download failed. Provide APK_URL."
+          exit 1
 
       - name: jadx decompile (Java)
         run: |
@@ -399,7 +399,7 @@ jobs:
 
       - name: Rebuild APK
         run: |
-          /opt/apktool b /tmp/apktool_out -o /tmp/${{ inputs.app_id }}-unsigned.apk --copy-original 2>&1 | tail -10
+          /opt/apktool b /tmp/apktool_out -o /tmp/${{ inputs.app_id }}-unsigned.apk 2>&1 | tail -10
           ls -lh /tmp/${{ inputs.app_id }}-unsigned.apk
 
       - name: Sign APK (v2/v3 zipalign + apksigner)
@@ -551,11 +551,28 @@ jobs:
           BADGING=$(find "$SDK" -name aapt2 2>/dev/null | head -1)
           if [ -n "$BADGING" ]; then echo "AAPT2=$BADGING" >> $GITHUB_ENV; fi
 
-      - name: 📦 Fetch APK
+      - name: 📦 Fetch APK (release cache preferred)
         env:
           GH_TOKEN: ${{ secrets.PAT }}
         run: |
           ID="${{ inputs.app_id }}"
+
+          # Step 1: check release cache first (much faster)
+          CACHE_TAG=$(gh release list --repo ${{ github.repository }} -L 30 --json tagName \
+            | python3 -c "import sys,json;rels=json.load(sys.stdin);tags=[r['tagName'] for r in rels if r['tagName'].startswith('$ID-original-')];print(max(tags) if tags else '')" 2>/dev/null)
+          if [ -n "$CACHE_TAG" ]; then
+            echo "📦 Using release cache: $CACHE_TAG"
+            gh release download "$CACHE_TAG" --repo ${{ github.repository }} --pattern "*.apk" --dir /tmp --clobber 2>/dev/null
+            mv /tmp/*.apk /tmp/$ID.apk 2>/dev/null || true
+            VERSION=$(echo "$CACHE_TAG" | sed 's/^$ID-original-//')
+            echo "CACHED_VERSION=$VERSION" >> $GITHUB_ENV
+            echo "✅ Using $ID v$VERSION from release cache"
+            ls -lh /tmp/$ID.apk
+            file /tmp/$ID.apk
+            exit 0
+          fi
+
+          # Step 2: no cache — download from URL
           if [ -n "$APK_URL" ]; then
             echo "Downloading from URL..."
             curl -sL --max-time 300 "$APK_URL" -o /tmp/$ID.apk
@@ -569,26 +586,18 @@ jobs:
               VERSION="${VERSION:-unknown}"
               echo "APK version: $VERSION"
               echo "CACHED_VERSION=$VERSION" >> $GITHUB_ENV
+              if ! gh release view "$ID-original-$VERSION" --repo ${{ github.repository }} &>/dev/null; then
+                echo "Caching original APK..."
+                gh release create "$ID-original-$VERSION" --repo ${{ github.repository }} --title "$ID $VERSION original" --notes "$ID $VERSION 原始APK" "/tmp/$ID.apk" 2>/dev/null || true
+              fi
               echo "✅ Downloaded $ID v$VERSION ($SIZE bytes)"
               ls -lh /tmp/$ID.apk
               exit 0
             fi
-            echo "URL download failed ($SIZE bytes), trying release cache..."
           fi
 
-          CACHE_TAG=$(gh release list --repo ${{ github.repository }} --json tagName \
-            | python3 -c "import sys,json;rels=json.load(sys.stdin);tags=[r['tagName'] for r in rels if r['tagName'].startswith('$ID-original-')];print(max(tags) if tags else '')" 2>/dev/null)
-          if [ -n "$CACHE_TAG" ]; then
-            echo "Found cache: $CACHE_TAG"
-            gh release download "$CACHE_TAG" --repo ${{ github.repository }} --pattern "*.apk" --dir /tmp --clobber 2>/dev/null
-            mv /tmp/*.apk /tmp/$ID.apk 2>/dev/null || true
-            VERSION=$(echo "$CACHE_TAG" | sed 's/^$ID-original-//')
-            echo "CACHED_VERSION=$VERSION" >> $GITHUB_ENV
-            ls -lh /tmp/$ID.apk
-          else
-            echo "No cached APK. Provide APK_URL."
-            exit 1
-          fi
+          echo "❌ No cache and URL download failed. Provide valid APK_URL."
+          exit 1
 
       - name: apktool decode
         run: |
@@ -638,7 +647,7 @@ jobs:
 
       - name: Rebuild APK
         run: |
-          /opt/apktool b /tmp/apktool_out -o /tmp/${{ inputs.app_id }}-unsigned.apk --copy-original 2>&1 | tail -10
+          /opt/apktool b /tmp/apktool_out -o /tmp/${{ inputs.app_id }}-unsigned.apk 2>&1 | tail -10
           ls -lh /tmp/${{ inputs.app_id }}-unsigned.apk
 
       - name: Sign APK (v2/v3 zipalign + apksigner)
