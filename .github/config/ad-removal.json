@@ -8,8 +8,6 @@
     "com/kuaishou"
   ],
   "sdk_init_methods": [
-    "Lcom/bytedance/sdk/openadsdk/TTAdSdk;->init",
-    "Lcom/bytedance/sdk/openadsdk/TTAdManager;->init",
     "Lcom/luckycat/sdk/LuckyCatSDK;->init"
   ],
   "sdk_packages_to_stub": [
