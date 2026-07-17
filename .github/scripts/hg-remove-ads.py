@@ -223,15 +223,11 @@ def filter_permissions(manifest_path: Path, keep: set[str]) -> int:
 
 
 def disable_cleartext(manifest_path: Path) -> None:
-    """android:usesCleartextTraffic="true" → "false" """
-    content = manifest_path.read_text(encoding="utf-8")
-    if 'android:usesCleartextTraffic="true"' in content:
-        content = content.replace(
-            'android:usesCleartextTraffic="true"',
-            'android:usesCleartextTraffic="false"',
-        )
-        manifest_path.write_text(content, encoding="utf-8")
-        print("  ✓ Cleartext true → false")
+    """跳过 cleartext 修改 — 保持 true 以免 HTTP 弹幕数据被拦截"""
+    # Android 9+ 真机严格执行明文拦截，弹幕数据走 HTTP
+    # 不改动 = 保持 usesCleartextTraffic="true"
+    # ponytail: 不改就不存在 bug
+    pass
 
 
 # ---------------------------------------------------------------------------
