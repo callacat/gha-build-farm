@@ -409,7 +409,7 @@ jobs:
 
       - name: Rebuild APK
         run: |
-          python3 .github/scripts/fix-public-xml.py
+#          python3 .github/scripts/fix-public-xml.py -- disabled (corrupts network_security_config)
           /opt/apktool b /tmp/apktool_out -o /tmp/${{ inputs.app_id }}-unsigned.apk 2>&1
           ls -lh /tmp/${{ inputs.app_id }}-unsigned.apk
 
@@ -661,7 +661,7 @@ jobs:
 
       - name: Rebuild APK
         run: |
-          python3 .github/scripts/fix-public-xml.py
+#          python3 .github/scripts/fix-public-xml.py -- disabled (corrupts network_security_config)
           /opt/apktool b /tmp/apktool_out -o /tmp/${{ inputs.app_id }}-unsigned.apk 2>&1
           ls -lh /tmp/${{ inputs.app_id }}-unsigned.apk
 
