@@ -79,9 +79,21 @@ def delete_directories(source: Path, packages: list[str]) -> int:
 # ---------------------------------------------------------------------------
 
 def _stub_method_body(method_lines: list[str], first_target: str) -> str:
-    """将 smali 方法体替换为只含 return-void 的最小桩。"""
+    """将 smali 方法体替换为最小桩代码，根据返回类型选择正确指令。"""
     first = method_lines[0]
-    return f"{first}\n    .registers 1\n    return-void\n.end method"
+    if ")Landroid/view/View;" in first or ")Landroid/view/View" in first:
+        # 返回 null View
+        stub_body = "    .registers 1\n    const/4 v0, 0x0\n    return-object v0"
+    elif ")V" in first:
+        stub_body = "    .registers 1\n    return-void"
+    elif ")Z" in first or ")Boolean" in first:
+        stub_body = "    .registers 1\n    const/4 v0, 0x0\n    return v0"
+    elif ")I" in first or ")Int" in first or ")Long" in first:
+        stub_body = "    .registers 2\n    const-wide/16 v0, 0x0\n    return-wide v0" if ")J" in first else "    .registers 1\n    const/4 v0, 0x0\n    return v0"
+    else:
+        # 默认 return-void (Void 方法)
+        stub_body = "    .registers 1\n    return-void"
+    return f"{first}\n{stub_body}\n.end method"
 
 
 def stub_init_methods(source: Path, init_methods: list[str]) -> int:
@@ -234,9 +246,7 @@ def disable_cleartext(manifest_path: Path) -> None:
 
 def fix_network_security_config(source: Path) -> None:
     """替换 network_security_config.xml 为简化版，避免 apktool 重编损坏 pin hash。"""
-    # 在 res 下找 network_security_config
     for xml_file in source.rglob("network_security_config.xml"):
-        # 写入简化版：允许 cleartext，无 pin
         simplified = '''<?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
     <base-config cleartextTrafficPermitted="true">
@@ -249,6 +259,92 @@ def fix_network_security_config(source: Path) -> None:
         print(f"  ✓ 简化 {xml_file.relative_to(source)} (移除 SSL pin)")
         return
     print("  (network_security_config.xml 未找到，跳过)")
+
+
+# ---------------------------------------------------------------------------
+# Fragment page removal — 按字符串搜索 smali 找 Fragment 类名再删除
+# ---------------------------------------------------------------------------
+
+def find_and_stub_fragment_pages(source: Path, keywords: list[str]) -> int:
+    """在 smali 中搜索关键词找到 Fragment 类，stub 其方法体（返回空 view 不崩溃）。
+
+    不删文件，只替换方法体为最小桩代码。
+    处理两类：
+      - Fragment 子类：stub onCreateView → return-void（空视图）
+      - Tab 配置/Adapter 类：跳过包含关键词的 const-string 行（移除 tab）
+    """
+    count = 0
+    processed: set[str] = set()
+
+    for smali_dir in sorted(source.glob("smali*")):
+        if not smali_dir.is_dir():
+            continue
+        for smali_file in sorted(smali_dir.rglob("*.smali")):
+            try:
+                content = smali_file.read_text(encoding="utf-8")
+            except Exception:
+                continue
+
+            if not any(kw in content for kw in keywords):
+                continue
+
+            class_match = re.search(r'\.class\s+\S+\s+(L[\w/$-]+;)', content)
+            if not class_match:
+                continue
+            class_desc = class_match.group(1)
+            if class_desc in processed:
+                continue
+
+            # 确认是 const-string 中的关键词
+            lines = content.split("\n")
+            if not any(line.strip().startswith("const-string") and any(kw in line for kw in keywords) for line in lines):
+                continue
+
+            processed.add(class_desc)
+            rel = safe_relative(smali_file, source)
+
+            is_fragment = any("Fragment" in line for line in lines if ".super" in line)
+
+            if is_fragment:
+                # Fragment → stub onCreateView 返回空
+                out = []
+                modified = False
+                i = 0
+                while i < len(lines):
+                    stripped = lines[i].strip()
+                    if stripped.startswith(".method ") and any(n in stripped for n in ("onCreateView", "onViewCreated", "initView", "initData", "onActivityCreated")):
+                        method_lines = [lines[i]]
+                        j = i + 1
+                        while j < len(lines) and lines[j].strip() != ".end method":
+                            method_lines.append(lines[j])
+                            j += 1
+                        end_line = lines[j] if j < len(lines) else ".end method"
+                        out.append(_stub_method_body(method_lines, ""))
+                        modified = True
+                        i = j + 1
+                        count += 1
+                        print(f"  ✓ stub {rel}: {class_desc}")
+                        continue
+                    out.append(lines[i])
+                    i += 1
+                if modified:
+                    smali_file.write_text("\n".join(out), encoding="utf-8")
+            else:
+                # Tab 配置类 → 删除包含关键词的 const-string 行
+                out = []
+                modified = False
+                for line in lines:
+                    stripped = line.strip()
+                    if stripped.startswith("const-string") and any(kw in stripped for kw in keywords):
+                        modified = True
+                        continue
+                    out.append(line)
+                if modified:
+                    smali_file.write_text("\n".join(out), encoding="utf-8")
+                    count += 1
+                    print(f"  ✓ 移除 tab 条目 {rel}: {class_desc}")
+
+    return count
 
 
 # ---------------------------------------------------------------------------
@@ -310,6 +406,15 @@ def main() -> int:
     # ---- Phase 2: 修复 network_security_config.xml ----
     print("\n=== Phase 2: 修复网络配置 ===")
     fix_network_security_config(source)
+
+    # ---- Phase 3: 删除 Fragment 页面（商城/赚钱/菜单等） ----
+    print("\n=== Phase 3: 删除 Fragment 页面 ===")
+    frag_keywords = ad_config.get("fragment_keywords", [])
+    if frag_keywords:
+        n = find_and_delete_fragment_pages(source, frag_keywords)
+        print(f"  → 删除 {n} 个 Fragment 目录")
+    else:
+        print("  (fragment_keywords 为空，跳过)")
 
     print("\n✓ 完成")
     return 0
