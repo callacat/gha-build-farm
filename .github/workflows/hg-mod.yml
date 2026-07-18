@@ -383,6 +383,10 @@ jobs:
 
       - name: Apply update dialog patches
         run: python3 .github/scripts/hg-update-patch.py /tmp/apktool_out /tmp/${{ inputs.app_id }}.apk
+
+      - name: 🧊 NOP 鹿属 dialog native entry point (C4409.m23296)
+        run: python3 .github/scripts/hg-nop-dialog-native.py /tmp/apktool_out
+
       - name: Find dialog source
         run: python3 .github/scripts/hg-find-dialog.py /tmp/apktool_out || true
 
