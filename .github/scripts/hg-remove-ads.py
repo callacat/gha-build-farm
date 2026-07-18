@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""按精确包名找到 smali 类并 stub 方法体。不删文件，不崩溃。"""
+"""仅删除指定包目录，不做 smali 编辑。"""
 
 from __future__ import annotations
-import argparse, json, re, sys
+import argparse, json, shutil, sys
 from pathlib import Path
 
 
@@ -11,86 +11,21 @@ def load_json(path: str) -> dict:
         return json.load(f)
 
 
-def _stub_method_body(method_lines: list[str]) -> str:
-    first = method_lines[0]
-    if ")Landroid/view/View;" in first:
-        stub = "    .registers 1\n    const/4 v0, 0x0\n    return-object v0"
-    elif ")V" in first:
-        stub = "    .registers 1\n    return-void"
-    elif ")Z" in first:
-        stub = "    .registers 1\n    const/4 v0, 0x0\n    return v0"
-    elif ")I" in first:
-        stub = "    .registers 1\n    const/4 v0, 0x0\n    return v0"
-    elif ")J" in first:
-        stub = "    .registers 2\n    const-wide/16 v0, 0x0\n    return-wide v0"
-    else:
-        stub = "    .registers 1\n    return-void"
-    return f"{first}\n{stub}\n.end method"
-
-
-def stub_package_classes(source: Path, packages: list[str]) -> int:
-    """按精确 smali 包路径找到类文件，stub 其所有方法体。
-
-    不删文件，只替换方法体为最小桩。
-    """
+def delete_packages(source: Path, packages: list[str]) -> int:
     count = 0
-    target_methods = ["onCreateView", "onViewCreated", "onCreate", "onActivityCreated",
-                      "initView", "initData", "init", "loadAd", "showAd", "onBindViewHolder"]
-
     for smali_dir in sorted(source.glob("smali*")):
         if not smali_dir.is_dir():
             continue
         for pkg in packages:
-            pkg_dir = smali_dir / pkg
-            if not pkg_dir.exists():
-                continue
-            for smali_file in sorted(pkg_dir.rglob("*.smali")):
-                # 跳过内部类（$ 类），它们的 smali 结构复杂容易破坏
-                if "$" in smali_file.name:
-                    continue
+            target = smali_dir / pkg
+            if target.exists():
                 try:
-                    lines = smali_file.read_text(encoding="utf-8").split("\n")
-                except Exception:
+                    target.resolve().relative_to(source.resolve())
+                except ValueError:
                     continue
-
-                out: list[str] = []
-                i = 0
-                modified = False
-                while i < len(lines):
-                    stripped = lines[i].strip()
-                    if stripped.startswith(".method "):
-                        method_lines = [lines[i]]
-                        j = i + 1
-                        while j < len(lines) and lines[j].strip() != ".end method":
-                            method_lines.append(lines[j])
-                            j += 1
-                        end_line = lines[j] if j < len(lines) else ".end method"
-
-                        method_sig = " ".join(stripped.split()[:3])
-                        if any(n in method_sig for n in target_methods):
-                            out.append(_stub_method_body(method_lines))
-                            modified = True
-                            i = j + 1
-                            continue
-                        out.extend(method_lines)
-                        out.append(end_line)
-                    else:
-                        out.append(lines[i])
-                    i += 1
-
-                if modified:
-                    # 确认是 Fragment/View 类（有超类声明）
-                    is_relevant = any("Fragment" in l or "View" in l or "Adapter" in l or "Activity" in l
-                                      for l in lines if ".super" in l)
-                    if not is_relevant:
-                        continue
-                    smali_file.write_text("\n".join(out), encoding="utf-8")
-                    class_match = re.search(r'\.class\s+\S+\s+(L[\w/$-]+;)', "\n".join(lines[:5]))
-                    cls = class_match.group(1) if class_match else "?"
-                    count += 1
-                    rel = str(smali_file.relative_to(source))
-                    print(f"  ✓ stub {rel}")
-
+                shutil.rmtree(target)
+                count += 1
+                print(f"  ✓ rm {target.relative_to(source)}")
     return count
 
 
@@ -105,7 +40,7 @@ def fix_network_security_config(source: Path) -> None:
     </base-config>
 </network-security-config>'''
         xml_file.write_text(simplified, encoding="utf-8")
-        print(f"  ✓ 简化 {xml_file.relative_to(source)}")
+        print(f"  ✓ fix {xml_file.relative_to(source)}")
         return
 
 
@@ -118,18 +53,18 @@ def main() -> int:
     source = Path(args.source)
     config = load_json(args.ad_config)
 
-    print("=== Phase 1: 修复网络配置 ===")
+    print("=== Fix network config ===")
     fix_network_security_config(source)
 
-    print("\n=== Phase 2: Stub 目标包 ===")
-    packages = config.get("packages_to_stub", [])
+    print("\n=== Delete packages ===")
+    packages = config.get("packages_to_delete", [])
     if packages:
-        n = stub_package_classes(source, packages)
-        print(f"  → 处理 {n} 个类文件")
+        n = delete_packages(source, packages)
+        print(f"  → deleted {n} directories")
     else:
-        print("  (跳过)")
+        print("  (empty)")
 
-    print("\n✓ 完成")
+    print("\n✓ done")
     return 0
 
 

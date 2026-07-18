@@ -1,11 +1,5 @@
 {
-  "packages_to_stub": [
-    "com/dragon/read/story/impl/tab/page/bookmall",
-    "com/dragon/read/component/biz/impl/seriesmall",
-    "com/dragon/read/goldcoinbox",
-    "com/dragon/read/ad",
-    "com/dragon/read/ecomtab",
-    "com/dragon/read/ui/menu",
-    "com/dragon/read/appwidget/welfaretask"
+  "packages_to_delete": [
+    "com/dragon/read/story/impl/tab/page/bookmall"
   ]
 }
