@@ -619,45 +619,13 @@ jobs:
           echo "=== smali files ==="
           find /tmp/apktool_out -name '*.smali' | wc -l
 
-      - name: 📋 Pre-removal SDK scan
-        run: |
-          echo "=== 广告 SDK 扫描 ==="
-          for pkg in com/bytedance/pangle com/bytedance/sdk/openadsdk com/luckycat com/baidu/mobads com/sigmob com/kuaishou com/pgl com/bytedance/sys; do
-            pkg_path=$(echo "$pkg" | tr '.' '/')
-            count=$(find /tmp/apktool_out/smali*/$pkg_path -name '*.smali' 2>/dev/null | wc -l)
-            if [ "$count" -gt 0 ]; then echo "  ✅ $pkg: $count files"; else echo "  ❌ $pkg: not found"; fi
-          done
-          echo ""
-          echo "=== 推送 SDK 扫描 ==="
-          for pkg in com/xiaomi/push com/huawei/hms com/hihonor/push com/vivo/push com/oppo/push com/bytedance/push; do
-            pkg_path=$(echo "$pkg" | tr '.' '/')
-            count=$(find /tmp/apktool_out/smali*/$pkg_path -name '*.smali' 2>/dev/null | wc -l)
-            if [ "$count" -gt 0 ]; then echo "  ✅ $pkg: $count files"; else echo "  ❌ $pkg: not found"; fi
-          done
 
       - name: 🧹 Remove ad SDKs + push + permissions
         run: |
           python3 .github/scripts/hg-remove-ads.py \
             --source /tmp/apktool_out \
-            --ad-config .github/config/ad-removal.json \
-            --push-config .github/config/push-removal.json \
-            --permissions-keep .github/config/permissions-keep.txt
+            --ad-config .github/config/ad-removal.json
 
-      - name: 📋 Post-removal verification
-        run: |
-          echo "=== 残留广告 SDK 检查（应为 0） ==="
-          for pkg in com/luckycat com/baidu/mobads com/sigmob com/kuaishou com/pgl com/luckystar; do
-            pkg_path=$(echo "$pkg" | tr '.' '/')
-            count=$(find /tmp/apktool_out/smali*/$pkg_path -name '*.smali' 2>/dev/null | wc -l)
-            echo "  $pkg: $count files"
-          done
-          echo ""
-          echo "=== ByteDance SDK 保留确认（应 > 0，走 init 打桩） ==="
-          for pkg in com/bytedance/sdk/openadsdk com/bytedance/pangle; do
-            pkg_path=$(echo "$pkg" | tr '.' '/')
-            count=$(find /tmp/apktool_out/smali*/$pkg_path -name '*.smali' 2>/dev/null | wc -l)
-            echo "  $pkg: $count files"
-          done
 
       - name: Rebuild APK
         run: |
