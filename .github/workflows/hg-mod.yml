@@ -442,7 +442,7 @@ jobs:
 
           # Extract version and rename APK to include version number
           VERSION="${CACHED_VERSION:-$(grep -oP 'versionName="[^"]*"' /tmp/apktool_out/AndroidManifest.xml 2>/dev/null | sed 's/versionName="//;s/"//')}"
-          APK_NAME="${{ inputs.app_id }}-${VERSION:-modified}.apk"
+          APK_NAME="${{ inputs.app_id }}-patch-${VERSION}-b${{ github.run_number }}.apk"
           cp /tmp/${{ inputs.app_id }}-signed.apk "/tmp/$APK_NAME"
           echo "APK_NAME=$APK_NAME" >> $GITHUB_ENV
           echo "APK_VERSION=${VERSION:-unknown}" >> $GITHUB_ENV
