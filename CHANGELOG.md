@@ -28,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **去弹窗版**: remove smali/so deletion — deleting sgcore0 breaks native code → crash on startup
+- **去弹窗版**: add `remote.oneseeker.top` + `dongle.oneseeker.top` to domain block list, keep `libseccore.so`
 - **去广告版**: add `openadsdk`/`pangle`/`ad` to deletion list — 25pp official build only uses ByteDance ads
 - **去广告版**: add `VIBRATE` permission — SwitchButtonV2.doVibrate crashes when opening 弹幕 panel
 - **去广告版**: preserve `usesCleartextTraffic=true` — HTTP danmaku streams need cleartext
