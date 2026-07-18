@@ -16,12 +16,11 @@ for xml_file in APK.rglob("res/xml/e.xml"):
     if "oneseeker.top" in text:
         print(f"  Already blocked")
     else:
-        block = """    <domain-config>
+        block = """    <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="true">oneseeker.top</domain>
         <domain includeSubdomains="true">changzhi.top</domain>
-        <pin-set expiration="2099-12-31">
-            <pin digest="SHA-256">AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=</pin>
-        </pin-set>
+        <trust-anchors>
+        </trust-anchors>
     </domain-config>
 """
         text = text.replace("</network-security-config>", block + "</network-security-config>")
