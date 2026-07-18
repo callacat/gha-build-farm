@@ -7,9 +7,10 @@ import sys
 APKTOOL = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("/tmp/apktool_out")
 
 # 鹿属弹窗的 smali 包路径（在 apktool decode 后的目录下）
+# 注意：只删弹窗 UI 代码，保留 sgcore0/SafeLoader 和 libseccore.so
+#       libseccore.so 是鹿属去广告的 native 层，删了广告会回来
 MODDER_SMALI_PACKAGES = [
     "org/checkerframework/checker/signature/query/security",  # 弹窗主体 + 按钮逻辑
-    "sgcore0",                                                # SafeLoader + Hidden0
 ]
 
 removed_files = 0
@@ -29,12 +30,11 @@ for smali_dir in sorted(APKTOOL.glob("smali*")):
             removed_files += file_count
             removed_dirs += 1
 
-# 2. 删除 libseccore.so（所有架构）
-print("\n=== 2. 删除 libseccore.so ===")
+# 2. 不删除 libseccore.so — 它是鹿属去广告的 native 层
+#    ponytail: 不删就不崩
+print("\n=== 2. 保留 libseccore.so（去广告 native 层，不删） ===")
 for so_file in APKTOOL.rglob("libseccore.so"):
-    print(f"  删除 {so_file}")
-    so_file.unlink()
-    removed_files += 1
+    print(f"  保留 {so_file}")
 
 # 3. 从 AndroidManifest.xml 中移除可能存在的 Activity 声明
 manifest = APKTOOL / "AndroidManifest.xml"
@@ -42,9 +42,7 @@ if manifest.is_file():
     content = manifest.read_text("utf-8", errors="replace")
     # 鹿属弹窗可能注册了 Activity（查找签名/安全相关 Activity）
     suspicious_patterns = [
-        "sgcore0",
         "checkerframework.checker.signature.query.security",
-        "libseccore",
     ]
     original_len = len(content)
     for pattern in suspicious_patterns:
