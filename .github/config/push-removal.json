@@ -6,8 +6,7 @@
     "com/vivo/push",
     "com/oppo/push",
     "com/heytap/push",
-    "com/assist/push",
-    "com/bytedance/push"
+    "com/assist/push"
   ],
   "push_receivers_in_manifest": []
 }

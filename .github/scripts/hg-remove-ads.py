@@ -275,7 +275,7 @@ def main() -> int:
     if manifest is None:
         print("[警告] AndroidManifest.xml 不存在，跳过 manifest 相关操作")
 
-    # ---- Phase 1: Layer A — 删除广告 SDK 目录 ----
+    # ---- Phase 1: 删除广告 SDK 目录 ----
     print("\n=== Phase 1: 删除广告 SDK 包目录 ===")
     packages = ad_config.get("packages_to_delete", [])
     if packages:
@@ -283,57 +283,6 @@ def main() -> int:
         print(f"  → 删除 {n} 个广告包目录")
     else:
         print("  (packages_to_delete 为空，跳过)")
-
-    # ---- Phase 2: Layer B — 打桩 SDK 初始化方法 ----
-    print("\n=== Phase 2: 打桩 SDK 初始化方法 ===")
-    init_methods = ad_config.get("sdk_init_methods", [])
-    if init_methods:
-        n = stub_init_methods(source, init_methods)
-        print(f"  → 打桩 {n} 个初始化方法")
-    else:
-        print("  (sdk_init_methods 为空，跳过)")
-
-    # ---- Phase 3: 删除推送 SDK 包目录 + 清理 Manifest 声明 ----
-    print("\n=== Phase 3: 删除推送 SDK 包目录 ===")
-    push_packages = push_config.get("push_packages", [])
-    if push_packages:
-        n = delete_directories(source, push_packages)
-        print(f"  → 删除 {n} 个推送包目录")
-
-        # 同步清理 Manifest 中对应的 <provider>/<receiver>/<service> 声明
-        if manifest:
-            # 从 Manifest 中找到所有属于已删除包的组件
-            manifest_content = manifest.read_text(encoding="utf-8")
-            comp_pattern = re.compile(
-                r'<(receiver|service|provider)\s+[^>]*?android:name\s*=\s*"([^"]*)"',
-                re.DOTALL,
-            )
-            push_prefixes = [pkg.replace("/", ".") for pkg in push_packages]
-            to_remove = []
-            for m in comp_pattern.finditer(manifest_content):
-                comp_name = m.group(2)
-                if any(comp_name.startswith(prefix) for prefix in push_prefixes):
-                    to_remove.append(comp_name)
-            if to_remove:
-                print(f"  → 清理 Manifest 中 {len(to_remove)} 个推送组件声明")
-                remove_manifest_components(manifest, to_remove)
-    else:
-        print("  (push_packages 为空，跳过)")
-
-    # ---- Phase 4: 精简权限（仅保留白名单） ----
-    print("\n=== Phase 4: 精简权限 ===")
-    if manifest and keep_perms:
-        n = filter_permissions(manifest, keep_perms)
-        print(f"  → 删除 {n} 个非白名单权限")
-    else:
-        print("  (manifest 不存在或 keep_perms 为空，跳过)")
-
-    # ---- Phase 5: Cleartext true → false ----
-    print("\n=== Phase 5: Cleartext 修复 ===")
-    if manifest:
-        disable_cleartext(manifest)
-    else:
-        print("  (manifest 不存在，跳过)")
 
     print("\n✓ 完成")
     return 0
