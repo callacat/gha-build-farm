@@ -45,6 +45,9 @@ def stub_package_classes(source: Path, packages: list[str]) -> int:
             if not pkg_dir.exists():
                 continue
             for smali_file in sorted(pkg_dir.rglob("*.smali")):
+                # 跳过内部类（$ 类），它们的 smali 结构复杂容易破坏
+                if "$" in smali_file.name:
+                    continue
                 try:
                     lines = smali_file.read_text(encoding="utf-8").split("\n")
                 except Exception:
