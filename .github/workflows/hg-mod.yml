@@ -476,7 +476,7 @@ jobs:
           echo "**下载：**" >> /tmp/release-notes.md
           echo "- Latest: https://github.com/${{ github.repository }}/releases/download/$ID-patch-latest/$APK_NAME" >> /tmp/release-notes.md
           echo "- Versioned: https://github.com/${{ github.repository }}/releases/download/$ID-patch-$TAG_VERSION/$APK_NAME" >> /tmp/release-notes.md
-          echo "- 加速: https://gh-proxy.com/https://github.com/${{ github.repository }}/releases/download/$ID-patch-latest/$APK_NAME" >> /tmp/release-notes.md
+          echo "- 加速: https://gh-proxy.dsurl.eu.org/https://github.com/${{ github.repository }}/releases/download/$ID-patch-latest/$APK_NAME" >> /tmp/release-notes.md
 
           # ── 1. Latest release (always newest) ──
           gh release delete "$ID-patch-latest" --yes --repo ${{ github.repository }} 2>/dev/null || true
@@ -502,7 +502,7 @@ jobs:
           echo "  Versioned: https://github.com/${{ github.repository }}/releases/download/$ID-patch-$TAG_VERSION/$APK_NAME"
           echo ""
           echo "✅ gh-proxy:"
-          echo "  https://gh-proxy.com/https://github.com/${{ github.repository }}/releases/download/$ID-patch-latest/$APK_NAME"
+          echo "  https://gh-proxy.dsurl.eu.org/https://github.com/${{ github.repository }}/releases/download/$ID-patch-latest/$APK_NAME"
 
       - name: Clean old versioned releases (keep last 5)
         if: success()
@@ -534,7 +534,7 @@ jobs:
           APK_NAME="${APK_NAME:-$ID-patch-unknown.apk}"
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/$ID-patch-latest/$APK_NAME"
-          GH_PROXY="https://gh-proxy.com/${DOWNLOAD_URL}"
+          GH_PROXY="https://gh-proxy.dsurl.eu.org/${DOWNLOAD_URL}"
           if [ "$STATUS" = "success" ]; then
             MSG=$(printf '✅ %s patch 构建成功\nRun: %s\n直链: %s\n加速: %s' \
               "$ID" "$RUN_URL" "$DOWNLOAD_URL" "$GH_PROXY")
@@ -729,7 +729,7 @@ jobs:
           echo "" >> /tmp/release-notes.md
           echo "**下载：**" >> /tmp/release-notes.md
           echo "- 直链: https://github.com/${{ github.repository }}/releases/download/hg-remove-ads-latest/${APK_NAME}" >> /tmp/release-notes.md
-          echo "- 加速: https://gh-proxy.com/https://github.com/${{ github.repository }}/releases/download/hg-remove-ads-latest/${APK_NAME}" >> /tmp/release-notes.md
+          echo "- 加速: https://gh-proxy.dsurl.eu.org/https://github.com/${{ github.repository }}/releases/download/hg-remove-ads-latest/${APK_NAME}" >> /tmp/release-notes.md
           echo "" >> /tmp/release-notes.md
           echo "**GitHub Actions 构建:** [运行 #${BUILD_NUM}](${RUN_URL})" >> /tmp/release-notes.md
 
@@ -753,7 +753,7 @@ jobs:
 
           echo "✅ 下载链接:"
           echo "  Latest: https://github.com/${{ github.repository }}/releases/download/hg-remove-ads-latest/${APK_NAME}"
-          echo "  加速: https://gh-proxy.com/https://github.com/${{ github.repository }}/releases/download/hg-remove-ads-latest/${APK_NAME}"
+          echo "  加速: https://gh-proxy.dsurl.eu.org/https://github.com/${{ github.repository }}/releases/download/hg-remove-ads-latest/${APK_NAME}"
 
       - name: Notify completion
         if: always()
@@ -763,7 +763,7 @@ jobs:
           APK_NAME="${APK_NAME:-hg-remove-ads-unknown.apk}"
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/hg-remove-ads-latest/$APK_NAME"
-          GH_PROXY="https://gh-proxy.com/${DOWNLOAD_URL}"
+          GH_PROXY="https://gh-proxy.dsurl.eu.org/${DOWNLOAD_URL}"
           if [ "$STATUS" = "success" ]; then
             MSG=$(printf '✅ %s 去广告构建成功\nRun: %s\n直链: %s\n加速: %s' \
               "$ID" "$RUN_URL" "$DOWNLOAD_URL" "$GH_PROXY")

@@ -157,7 +157,7 @@ Usage:
     const prefix = cmd === "remove-ads" ? "hg-remove-ads" : "hg-patch"
     console.log(`\n✅ Download:`)
     console.log(`  https://github.com/${REPO}/releases/download/${prefix}-latest/${prefix}-${arg}-b${result.runId}.apk`)
-    console.log(`  https://gh-proxy.com/https://github.com/${REPO}/releases/download/${prefix}-latest/${prefix}-${arg}-b${result.runId}.apk`)
+    console.log(`  https://gh-proxy.dsurl.eu.org/https://github.com/${REPO}/releases/download/${prefix}-latest/${prefix}-${arg}-b${result.runId}.apk`)
   }
 
   if (result.conclusion !== "success") {
