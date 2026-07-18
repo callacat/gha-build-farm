@@ -22,12 +22,6 @@
     "com/bytedance/sdk/ad",
     "com/bytedance/sdk/component"
   ],
-  "pages_to_remove": [
-    "mall", "shop", "store", "earn", "money", "wallet",
-    "商城", "小铺", "赚", "收益", "余额", "金币",
-    "vip", "pay", "recharge", "order", "member",
-    "webview", "browser", "ad"
-  ],
   "oaid_device_fields": [
     "oaid",
     "device_id",
