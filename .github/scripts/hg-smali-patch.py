@@ -9,7 +9,7 @@ APK = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("/tmp/apktool_out")
 POISON_HOST = "127.0.0.1"
 # Only poison the explicit update server — CDN/API domains are needed for normal operation.
 # These came from Mihomo logs during update-check, not from startup traffic.
-TARGETS = ["oneseeker.top", "dongle.oneseeker.top", "changzhi.top"]
+TARGETS = ["oneseeker.top", "dongle.oneseeker.top", "remote.oneseeker.top", "changzhi.top"]
 
 MODS = HITS = 0
 # Match full URL pattern OR bare domain name / IP
