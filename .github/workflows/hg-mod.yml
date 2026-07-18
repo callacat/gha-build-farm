@@ -13,7 +13,7 @@ on:
         required: false
         default: ''
       workflow:
-        description: '选择工作流：analysis=分析，patch=去黑产弹窗，remove-ads=去广告'
+        description: '选择工作流：analysis=分析，patch=去弹窗版，remove-ads=去广告版'
         required: true
         default: 'analysis'
         type: choice
@@ -454,7 +454,7 @@ jobs:
         run: |
           ID="${{ inputs.app_id }}"
           VERSION="${APK_VERSION:-unknown}"
-          APK_NAME="${APK_NAME:-$ID-modified.apk}"
+          APK_NAME="$ID-patch-${VERSION}-b${{ github.run_number }}.apk"
           echo "Releasing: $APK_NAME (version $VERSION)"
 
           TAG_VERSION="v${VERSION}"
@@ -462,7 +462,7 @@ jobs:
 
           # ── Write release notes to temp file ──
           rm -f /tmp/release-notes.md
-          echo "**📦 $ID 去更新**" >> /tmp/release-notes.md
+          echo "**📦 红果短剧 去弹窗版**" >> /tmp/release-notes.md
           echo "" >> /tmp/release-notes.md
           echo "**版本:** $VERSION" >> /tmp/release-notes.md
           echo "**修改内容:**" >> /tmp/release-notes.md
@@ -474,35 +474,35 @@ jobs:
           echo "---" >> /tmp/release-notes.md
           echo "" >> /tmp/release-notes.md
           echo "**下载：**" >> /tmp/release-notes.md
-          echo "- Latest: https://github.com/${{ github.repository }}/releases/download/$ID-latest/$APK_NAME" >> /tmp/release-notes.md
-          echo "- Versioned: https://github.com/${{ github.repository }}/releases/download/$ID-$TAG_VERSION/$APK_NAME" >> /tmp/release-notes.md
-          echo "- 加速: https://gh-proxy.com/https://github.com/${{ github.repository }}/releases/download/$ID-latest/$APK_NAME" >> /tmp/release-notes.md
+          echo "- Latest: https://github.com/${{ github.repository }}/releases/download/$ID-patch-latest/$APK_NAME" >> /tmp/release-notes.md
+          echo "- Versioned: https://github.com/${{ github.repository }}/releases/download/$ID-patch-$TAG_VERSION/$APK_NAME" >> /tmp/release-notes.md
+          echo "- 加速: https://gh-proxy.com/https://github.com/${{ github.repository }}/releases/download/$ID-patch-latest/$APK_NAME" >> /tmp/release-notes.md
 
           # ── 1. Latest release (always newest) ──
-          gh release delete "$ID-latest" --yes --repo ${{ github.repository }} 2>/dev/null || true
-          git push --delete origin "$ID-latest" 2>/dev/null || true
-          gh release create "$ID-latest" \
+          gh release delete "$ID-patch-latest" --yes --repo ${{ github.repository }} 2>/dev/null || true
+          git push --delete origin "$ID-patch-latest" 2>/dev/null || true
+          gh release create "$ID-patch-latest" \
             --repo ${{ github.repository }} \
-            --title "$ID 去更新 (latest)" \
+            --title "红果短剧 去弹窗版 (latest)" \
             --notes-file /tmp/release-notes.md \
             "/tmp/$APK_NAME"
 
           # ── 2. Versioned release ──
-          gh release delete "$ID-$TAG_VERSION" --yes --repo ${{ github.repository }} 2>/dev/null || true
-          git push --delete origin "$ID-$TAG_VERSION" 2>/dev/null || true
-          gh release create "$ID-$TAG_VERSION" \
+          gh release delete "$ID-patch-$TAG_VERSION" --yes --repo ${{ github.repository }} 2>/dev/null || true
+          git push --delete origin "$ID-patch-$TAG_VERSION" 2>/dev/null || true
+          gh release create "$ID-patch-$TAG_VERSION" \
             --repo ${{ github.repository }} \
-            --title "$ID 去更新 $TAG_VERSION" \
+            --title "红果短剧 去弹窗版 $TAG_VERSION" \
             --notes-file /tmp/release-notes.md \
             "/tmp/$APK_NAME"
 
           echo ""
           echo "✅ 下载链接:"
-          echo "  Latest: https://github.com/${{ github.repository }}/releases/download/$ID-latest/$APK_NAME"
-          echo "  Versioned: https://github.com/${{ github.repository }}/releases/download/$ID-$TAG_VERSION/$APK_NAME"
+          echo "  Latest: https://github.com/${{ github.repository }}/releases/download/$ID-patch-latest/$APK_NAME"
+          echo "  Versioned: https://github.com/${{ github.repository }}/releases/download/$ID-patch-$TAG_VERSION/$APK_NAME"
           echo ""
           echo "✅ gh-proxy:"
-          echo "  https://gh-proxy.com/https://github.com/${{ github.repository }}/releases/download/$ID-latest/$APK_NAME"
+          echo "  https://gh-proxy.com/https://github.com/${{ github.repository }}/releases/download/$ID-patch-latest/$APK_NAME"
 
       - name: Clean old versioned releases (keep last 5)
         if: success()
@@ -514,7 +514,7 @@ jobs:
           ID = '${{ inputs.app_id }}'
           res = subprocess.run(['gh', 'release', 'list', '--repo', '${{ github.repository }}', '--json', 'tagName,isLatest,createdAt'], capture_output=True, text=True)
           releases = json.loads(res.stdout)
-          prefix = ID + '-v'
+          prefix = ID + '-patch-v'
           vers = [r for r in releases if r['tagName'].startswith(prefix) and not r['isLatest']]
           vers.sort(key=lambda r: r['createdAt'], reverse=True)
           for r in vers[5:]:
@@ -531,9 +531,9 @@ jobs:
         run: |
           STATUS="${{ job.status }}"
           ID="${{ inputs.app_id }}"
-          APK_NAME="${APK_NAME:-$ID-modified.apk}"
+          APK_NAME="${APK_NAME:-$ID-patch-unknown.apk}"
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/$ID-latest/$APK_NAME"
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/$ID-patch-latest/$APK_NAME"
           GH_PROXY="https://gh-proxy.com/${DOWNLOAD_URL}"
           if [ "$STATUS" = "success" ]; then
             MSG=$(printf '✅ %s patch 构建成功\nRun: %s\n直链: %s\n加速: %s' \
@@ -693,7 +693,7 @@ jobs:
           $BT/apksigner verify --verbose /tmp/${{ inputs.app_id }}-signed.apk 2>&1 | head -15
 
           VERSION="${CACHED_VERSION:-$(grep -oP 'versionName="[^"]*"' /tmp/apktool_out/AndroidManifest.xml 2>/dev/null | sed 's/versionName="//;s/"//')}"
-          APK_NAME="${{ inputs.app_id }}-clean-${VERSION:-modified}.apk"
+          APK_NAME="hg-remove-ads-${VERSION}-b${{ github.run_number }}.apk"
           cp /tmp/${{ inputs.app_id }}-signed.apk "/tmp/$APK_NAME"
           echo "APK_NAME=$APK_NAME" >> $GITHUB_ENV
           echo "APK_VERSION=${VERSION:-unknown}" >> $GITHUB_ENV
@@ -705,13 +705,19 @@ jobs:
         run: |
           ID="${{ inputs.app_id }}"
           VERSION="${APK_VERSION:-unknown}"
-          APK_NAME="${APK_NAME:-$ID-clean.apk}"
+          BUILD_NUM=${{ github.run_number }}
+          APK_NAME="hg-remove-ads-${VERSION}-b${BUILD_NUM}.apk"
           TAG_VERSION="v${VERSION}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          # Rename APK to new naming convention
+          cp "/tmp/${ID}-signed.apk" "/tmp/${APK_NAME}"
 
           rm -f /tmp/release-notes.md
-          echo "**📦 $ID 去广告版**" >> /tmp/release-notes.md
+          echo "**📦 红果短剧 去广告版**" >> /tmp/release-notes.md
           echo "" >> /tmp/release-notes.md
           echo "**版本:** $VERSION" >> /tmp/release-notes.md
+          echo "**构建编号:** ${BUILD_NUM}" >> /tmp/release-notes.md
           echo "**构建时间:** $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')" >> /tmp/release-notes.md
           echo "" >> /tmp/release-notes.md
           echo "**修改内容:**" >> /tmp/release-notes.md
@@ -722,39 +728,41 @@ jobs:
           echo "---" >> /tmp/release-notes.md
           echo "" >> /tmp/release-notes.md
           echo "**下载：**" >> /tmp/release-notes.md
-          echo "- 直链: https://github.com/${{ github.repository }}/releases/download/$ID-clean-latest/$APK_NAME" >> /tmp/release-notes.md
-          echo "- 加速: https://gh-proxy.com/https://github.com/${{ github.repository }}/releases/download/$ID-clean-latest/$APK_NAME" >> /tmp/release-notes.md
+          echo "- 直链: https://github.com/${{ github.repository }}/releases/download/hg-remove-ads-latest/${APK_NAME}" >> /tmp/release-notes.md
+          echo "- 加速: https://gh-proxy.com/https://github.com/${{ github.repository }}/releases/download/hg-remove-ads-latest/${APK_NAME}" >> /tmp/release-notes.md
+          echo "" >> /tmp/release-notes.md
+          echo "**GitHub Actions 构建:** [运行 #${BUILD_NUM}](${RUN_URL})" >> /tmp/release-notes.md
 
           # Latest release
-          gh release delete "$ID-clean-latest" --yes --repo ${{ github.repository }} 2>/dev/null || true
-          git push --delete origin "$ID-clean-latest" 2>/dev/null || true
-          gh release create "$ID-clean-latest" \
+          gh release delete "hg-remove-ads-latest" --yes --repo ${{ github.repository }} 2>/dev/null || true
+          git push --delete origin "hg-remove-ads-latest" 2>/dev/null || true
+          gh release create "hg-remove-ads-latest" \
             --repo ${{ github.repository }} \
-            --title "$ID 去广告 (latest)" \
+            --title "红果短剧 去广告版 (latest)" \
             --notes-file /tmp/release-notes.md \
-            "/tmp/$APK_NAME"
+            "/tmp/${APK_NAME}"
 
           # Versioned release
-          gh release delete "$ID-clean-$TAG_VERSION" --yes --repo ${{ github.repository }} 2>/dev/null || true
-          git push --delete origin "$ID-clean-$TAG_VERSION" 2>/dev/null || true
-          gh release create "$ID-clean-$TAG_VERSION" \
+          gh release delete "hg-remove-ads-${TAG_VERSION}" --yes --repo ${{ github.repository }} 2>/dev/null || true
+          git push --delete origin "hg-remove-ads-${TAG_VERSION}" 2>/dev/null || true
+          gh release create "hg-remove-ads-${TAG_VERSION}" \
             --repo ${{ github.repository }} \
-            --title "$ID 去广告 $TAG_VERSION" \
+            --title "红果短剧 去广告版 ${TAG_VERSION}" \
             --notes-file /tmp/release-notes.md \
-            "/tmp/$APK_NAME"
+            "/tmp/${APK_NAME}"
 
           echo "✅ 下载链接:"
-          echo "  Latest: https://github.com/${{ github.repository }}/releases/download/$ID-clean-latest/$APK_NAME"
-          echo "  加速: https://gh-proxy.com/https://github.com/${{ github.repository }}/releases/download/$ID-clean-latest/$APK_NAME"
+          echo "  Latest: https://github.com/${{ github.repository }}/releases/download/hg-remove-ads-latest/${APK_NAME}"
+          echo "  加速: https://gh-proxy.com/https://github.com/${{ github.repository }}/releases/download/hg-remove-ads-latest/${APK_NAME}"
 
       - name: Notify completion
         if: always()
         run: |
           STATUS="${{ job.status }}"
           ID="${{ inputs.app_id }}"
-          APK_NAME="${APK_NAME:-$ID-clean.apk}"
+          APK_NAME="${APK_NAME:-hg-remove-ads-unknown.apk}"
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/$ID-clean-latest/$APK_NAME"
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/hg-remove-ads-latest/$APK_NAME"
           GH_PROXY="https://gh-proxy.com/${DOWNLOAD_URL}"
           if [ "$STATUS" = "success" ]; then
             MSG=$(printf '✅ %s 去广告构建成功\nRun: %s\n直链: %s\n加速: %s' \
@@ -766,6 +774,27 @@ jobs:
             -d "chat_id=${{ secrets.TG_CHAT_ID }}" \
             -d "text=$MSG" \
             -d "parse_mode=HTML" || true
+
+      - name: Clean old versioned releases (keep last 5)
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
+        run: |
+          python3 -c "
+          import subprocess, json, sys
+          res = subprocess.run(['gh', 'release', 'list', '--repo', '${{ github.repository }}', '--json', 'tagName,isLatest,createdAt'], capture_output=True, text=True)
+          releases = json.loads(res.stdout)
+          prefix = 'hg-remove-ads-v'
+          vers = [r for r in releases if r['tagName'].startswith(prefix) and not r['isLatest']]
+          vers.sort(key=lambda r: r['createdAt'], reverse=True)
+          for r in vers[5:]:
+              tag = r['tagName']
+              print(f'Deleting old release: {tag}')
+              subprocess.run(['gh', 'release', 'delete', tag, '--yes', '--repo', '${{ github.repository }}'], capture_output=True)
+              subprocess.run(['git', 'push', '--delete', 'origin', tag], capture_output=True)
+          kept = min(len(vers), 5)
+          print(f'Kept {kept}, deleted {len(vers)-kept}')
+          "
 
       - name: Clean old runs
         uses: Mattraks/delete-workflow-runs@v2
