@@ -22,6 +22,11 @@
     "com/bytedance/sdk/ad",
     "com/bytedance/sdk/component"
   ],
+  "fragment_keywords": [
+    "商城",
+    "赚钱",
+    "小铺"
+  ],
   "oaid_device_fields": [
     "oaid",
     "device_id",
