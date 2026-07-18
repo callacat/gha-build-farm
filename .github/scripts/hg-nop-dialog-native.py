@@ -1,31 +1,14 @@
 #!/usr/bin/env python3
-"""Block 鹿属 dialogs + bump update version code to suppress update dialog.
+"""Block 鹿属 remote dialogs + kill native socket.
 
-Three defenses:
-1. Bump UPDATE_VERSION_CODE to MAX_INT in AndroidManifest — prevents update dialog
-2. network_security_config — domain block at Java HTTP layer
-3. socket() PLT patch — block native layer socket creation
+1. network_security_config — domain block at Java HTTP/HTTPS layer
+2. socket() PLT patch — block native layer socket creation
 """
-import struct, sys, re as _re
+import struct, sys
 from pathlib import Path
 
 APK = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("/tmp/apktool_out")
 TOTAL = 0
-
-# ── Phase 0: Bump UPDATE_VERSION_CODE ──
-print("=== Phase 0: Bump UPDATE_VERSION_CODE ===")
-manifest = APK / "AndroidManifest.xml"
-if manifest.exists():
-    text = manifest.read_text("utf-8", errors="replace")
-    text = _re.sub(r'UPDATE_VERSION_CODE" value="\d+"', 'UPDATE_VERSION_CODE" value="2147483647"', text)
-    text = _re.sub(r'SS_VERSION_CODE" value="\d+"', 'SS_VERSION_CODE" value="2147483647"', text)
-    manifest.write_text(text, encoding="utf-8")
-    TOTAL += 1
-    print("  ✅ UPDATE_VERSION_CODE -> MAX_INT")
-else:
-    print("  ⚠️  AndroidManifest not found")
-
-# ── Phase 1: network_security_config domain block ──
 print("=== Phase 1: network_security_config domain block ===")
 for xml_file in APK.rglob("res/xml/e.xml"):
     text = xml_file.read_text("utf-8", errors="replace")
