@@ -26,6 +26,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Disable `UpdateServiceImpl.checkUpdate()` method
   - Remove `libseccore.so` and associated smali directories
 
+### Fixed
+
+- **去广告版**: add `openadsdk`/`pangle`/`ad` to deletion list — 25pp official build only uses ByteDance ads
+- **去广告版**: add `VIBRATE` permission — SwitchButtonV2.doVibrate crashes when opening 弹幕 panel
+- **去广告版**: preserve `usesCleartextTraffic=true` — HTTP danmaku streams need cleartext
+- **去广告版**: keep `GET_ACCOUNTS`/`AUTHENTICATE_ACCOUNTS` — ByteDance account service
+- **去广告版**: do not stub `TTAdSdk.init`/`TTAdManager.init` — breaks danmaku overlay
+
 ### Changed
 
 - APK fetch: URL-specified download takes priority; falls back to release cache
