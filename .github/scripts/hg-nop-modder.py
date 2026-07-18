@@ -8,7 +8,7 @@ MODS = 0
 
 for f in sorted(APK.rglob("*.smali")):
     text = f.read_text("utf-8", errors="replace")
-    if "oneseeker.top" not in text:
+    if "oneseeker.top" not in text and "remote.oneseeker.top" not in text and "dongle.oneseeker.top" not in text:
         continue
 
     print(f"=== Found oneseeker in {f.relative_to(APK)} ===")
