@@ -6,7 +6,7 @@
 // @author       callacat
 // @match        https://linux.do/t/*
 // @run-at       document-idle
-// @iconhttps://linux.do/uploads/default/optimized/1X/3a18b4b0da3e8cf96f7eea15241c3d251f28a39b_2_180x180.png
+// @icon         https://linux.do/uploads/default/optimized/1X/3a18b4b0da3e8cf96f7eea15241c3d251f28a39b_2_180x180.png
 // @grant        none
 // @license      MIT
 // @downloadURL https://raw.githubusercontent.com/callacat/gha-build-farm/main/linuxdo.js
