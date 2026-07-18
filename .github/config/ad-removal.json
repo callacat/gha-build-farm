@@ -1,36 +1,7 @@
 {
-  "packages_to_delete": [
-    "com/luckycat",
-    "com/luckystar",
-    "com/pgl",
-    "com/baidu/mobads",
-    "com/sigmob",
-    "com/kuaishou",
-    "com/bytedance/sdk/openadsdk",
-    "com/bytedance/sdk/ad",
-    "com/bytedance/pangle",
-    "com/bytedance/sdk/component"
-  ],
-  "sdk_init_methods": [
-    "Lcom/bytedance/sdk/openadsdk/TTAdSdk;->init",
-    "Lcom/bytedance/sdk/openadsdk/adapter/TTAdManager;->init",
-    "Lcom/bytedance/sdk/openadsdk/TTAdManager;->init",
-    "Lcom/luckycat/sdk/LuckyCatSDK;->init"
-  ],
-  "sdk_packages_to_stub": [
-    "com/bytedance/sdk/openadsdk",
-    "com/bytedance/sdk/ad",
-    "com/bytedance/sdk/component"
-  ],
   "fragment_keywords": [
     "商城",
     "赚钱",
     "小铺"
-  ],
-  "oaid_device_fields": [
-    "oaid",
-    "device_id",
-    "android_id",
-    "serials"
   ]
 }
