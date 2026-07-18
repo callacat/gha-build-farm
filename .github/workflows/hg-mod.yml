@@ -356,9 +356,11 @@ jobs:
             exit 1
           fi
 
-      - name: apktool decode (skip resources)
+      - name: apktool decode (full, no -r — need all smali classes for NOP)
         run: |
-          /opt/apktool d /tmp/${{ inputs.app_id }}.apk -o /tmp/apktool_out -f -r 2>&1 | tail -3
+          /opt/apktool d /tmp/${{ inputs.app_id }}.apk -o /tmp/apktool_out -f 2>&1 | tail -5
+          echo "=== smali dirs ==="
+          ls -d /tmp/apktool_out/smali* 2>/dev/null | wc -l
 
       - name: 🔍 Search for "立即更新" string references globally
         run: python3 .github/scripts/hg-find-update-string.py
