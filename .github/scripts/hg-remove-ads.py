@@ -229,6 +229,29 @@ def disable_cleartext(manifest_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Fix network_security_config — 简化 SSL pin 配置（apktool 重编译会损坏它）
+# ---------------------------------------------------------------------------
+
+def fix_network_security_config(source: Path) -> None:
+    """替换 network_security_config.xml 为简化版，避免 apktool 重编损坏 pin hash。"""
+    # 在 res 下找 network_security_config
+    for xml_file in source.rglob("network_security_config.xml"):
+        # 写入简化版：允许 cleartext，无 pin
+        simplified = '''<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>'''
+        xml_file.write_text(simplified, encoding="utf-8")
+        print(f"  ✓ 简化 {xml_file.relative_to(source)} (移除 SSL pin)")
+        return
+    print("  (network_security_config.xml 未找到，跳过)")
+
+
+# ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
 
@@ -283,6 +306,10 @@ def main() -> int:
         print(f"  → 删除 {n} 个广告包目录")
     else:
         print("  (packages_to_delete 为空，跳过)")
+
+    # ---- Phase 2: 修复 network_security_config.xml ----
+    print("\n=== Phase 2: 修复网络配置 ===")
+    fix_network_security_config(source)
 
     print("\n✓ 完成")
     return 0
