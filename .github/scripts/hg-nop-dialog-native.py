@@ -41,8 +41,12 @@ for so_file in sorted(APK.rglob("libseccore.so")):
     for i in range(e_shnum):
         off = e_shoff + i * e_shentsize
         sh_name = struct.unpack_from('<I', data[off:off+4])[0]
-        _, sh_flags, sh_addr, sh_offset, sh_size = struct.unpack_from('<IQQQQ', data[off+4:off+36])
-        sec.append(dict(name=sh_name, offset=sh_offset, size=sh_size))
+        sh_type = struct.unpack_from('<I', data[off+4:off+8])[0]
+        sh_flags = struct.unpack_from('<Q', data[off+8:off+16])[0]
+        sh_addr = struct.unpack_from('<Q', data[off+16:off+24])[0]
+        sh_offset = struct.unpack_from('<Q', data[off+24:off+32])[0]
+        sh_size = struct.unpack_from('<Q', data[off+32:off+40])[0]
+        sec.append(dict(name=sh_name, type=sh_type, flags=sh_flags, addr=sh_addr, offset=sh_offset, size=sh_size))
     sst = data[sec[e_shstrndx]['offset']:sec[e_shstrndx]['offset']+sec[e_shstrndx]['size']]
     for s in sec:
         end = sst.find(b'\x00', s['name'])
