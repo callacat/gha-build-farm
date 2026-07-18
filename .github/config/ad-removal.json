@@ -6,14 +6,18 @@
     "com/baidu/mobads",
     "com/sigmob",
     "com/kuaishou",
-    "com/bytedance/sdk/openadsdk",
-    "com/bytedance/sdk/ad",
     "com/bytedance/pangle"
   ],
   "sdk_init_methods": [
+    "Lcom/bytedance/sdk/openadsdk/TTAdSdk;->init",
+    "Lcom/bytedance/sdk/openadsdk/adapter/TTAdManager;->init",
+    "Lcom/bytedance/sdk/openadsdk/TTAdManager;->init",
     "Lcom/luckycat/sdk/LuckyCatSDK;->init"
   ],
   "sdk_packages_to_stub": [
+    "com/bytedance/sdk/openadsdk",
+    "com/bytedance/sdk/ad",
+    "com/bytedance/sdk/component"
   ],
   "oaid_device_fields": [
     "oaid",
