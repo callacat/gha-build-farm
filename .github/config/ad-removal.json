@@ -5,15 +5,15 @@
     "com/pgl",
     "com/baidu/mobads",
     "com/sigmob",
-    "com/kuaishou"
+    "com/kuaishou",
+    "com/bytedance/sdk/openadsdk",
+    "com/bytedance/sdk/ad",
+    "com/bytedance/pangle"
   ],
   "sdk_init_methods": [
     "Lcom/luckycat/sdk/LuckyCatSDK;->init"
   ],
   "sdk_packages_to_stub": [
-    "com/bytedance/sdk/openadsdk",
-    "com/bytedance/sdk/ad",
-    "com/bytedance/sdk/component"
   ],
   "oaid_device_fields": [
     "oaid",
