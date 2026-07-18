@@ -20,7 +20,7 @@ for xml_file in APK.rglob("res/xml/e.xml"):
         <domain includeSubdomains="true">oneseeker.top</domain>
         <domain includeSubdomains="true">changzhi.top</domain>
         <pin-set expiration="2099-12-31">
-            <pin digest="SHA-256">aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</pin>
+            <pin digest="SHA-256">AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=</pin>
         </pin-set>
     </domain-config>
 """
