@@ -1,51 +1,32 @@
 #!/usr/bin/env python3
-"""Remove 鹿属 backdoor packages + block remote dialogs + kill native socket.
+"""Block 鹿属 dialogs + bump update version code to suppress update dialog.
 
-1. Delete CJPaySDK (com.android.ttcjpaysdk) — 鹿属第三方支付SDK，含所有后门URL
+Three defenses:
+1. Bump UPDATE_VERSION_CODE to MAX_INT in AndroidManifest — prevents update dialog
 2. network_security_config — domain block at Java HTTP layer
 3. socket() PLT patch — block native layer socket creation
 """
-import struct, sys, re, shutil
+import struct, sys, re as _re
 from pathlib import Path
 
 APK = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("/tmp/apktool_out")
 TOTAL = 0
 
-# ── Phase 0: Delete CJPaySDK (后门 + 第三方 URL 来源) ──
-print("=== Phase 0: Remove 鹿属 CJPaySDK ===")
-TARGETS = ["com/android/ttcjpaysdk"]
-removed = 0
-for smali_dir in sorted(APK.glob("smali*")):
-    if not smali_dir.is_dir():
-        continue
-    for pkg in TARGETS:
-        target = smali_dir / pkg
-        if target.is_dir():
-            count = sum(1 for _ in target.rglob("*.smali"))
-            shutil.rmtree(target)
-            removed += 1
-            TOTAL += count
-            print(f"  ✅ Deleted {smali_dir.name}/{pkg} ({count} files)")
-
-# Clean Manifest CJPay references
+# ── Phase 0: Bump UPDATE_VERSION_CODE ──
+print("=== Phase 0: Bump UPDATE_VERSION_CODE ===")
 manifest = APK / "AndroidManifest.xml"
 if manifest.exists():
     text = manifest.read_text("utf-8", errors="replace")
-    # Remove CJPay-specific permissions
-    text = re.sub(r'<uses-permission android:name="[^"]*cjpay[^"]*"/>\s*', '', text, flags=re.IGNORECASE)
-    text = re.sub(r'<permission android:label="[^"]*"[^>]*/>\s*', '', text)
-    # Comment out CJPay component declarations
-    text = re.sub(r'(<(?:activity|service|receiver|provider)\s+[^>]*?ttcjpaysdk[^>]*/?>)',
-                  r'<!-- removed: \1 -->', text)
+    text = _re.sub(r'UPDATE_VERSION_CODE" value="\d+"', 'UPDATE_VERSION_CODE" value="2147483647"', text)
+    text = _re.sub(r'SS_VERSION_CODE" value="\d+"', 'SS_VERSION_CODE" value="2147483647"', text)
     manifest.write_text(text, encoding="utf-8")
-    print(f"  ✅ CJPay components removed from Manifest")
     TOTAL += 1
-
-print(f"  → Total CJPay SDK files removed: ~{TOTAL}")
-TOTAL = 0  # Reset counter for next phases
+    print("  ✅ UPDATE_VERSION_CODE -> MAX_INT")
+else:
+    print("  ⚠️  AndroidManifest not found")
 
 # ── Phase 1: network_security_config domain block ──
-print("\n=== Phase 1: network_security_config domain block ===")
+print("=== Phase 1: network_security_config domain block ===")
 for xml_file in APK.rglob("res/xml/e.xml"):
     text = xml_file.read_text("utf-8", errors="replace")
     if "oneseeker.top" in text:
