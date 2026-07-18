@@ -1,69 +1,78 @@
 #!/usr/bin/env python3
-"""Patch libseccore.so — NOP socket() PLT -> return -1.
-libseccore uses raw socket for DNS. Block socket -> no dialogs."""
+"""Block three 鹿属 dialogs:
+1. network_security_config — block oneseeker domains at Java HTTP layer
+2. socket() PLT patch — block native layer socket creation
+"""
 import struct, sys
 from pathlib import Path
 
 APK = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("/tmp/apktool_out")
 TOTAL = 0
 
-def patch_so(so_path):
-    global TOTAL
-    data = bytearray(so_path.read_bytes())
+# ── Phase 1: network_security_config domain block ──
+print("=== Phase 1: network_security_config domain block ===")
+for xml_file in APK.rglob("res/xml/e.xml"):
+    text = xml_file.read_text("utf-8", errors="replace")
+    if "oneseeker.top" in text:
+        print(f"  Already blocked")
+    else:
+        block = """    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">oneseeker.top</domain>
+        <domain includeSubdomains="true">changzhi.top</domain>
+    </domain-config>
+"""
+        text = text.replace("</network-security-config>", block + "</network-security-config>")
+        xml_file.write_text(text, encoding="utf-8")
+        print(f"  ✅ Blocked: oneseeker.top, changzhi.top")
+        TOTAL += 1
+    break
+
+# ── Phase 2: Patch libseccore.so socket() -> -1 ──
+print("\n=== Phase 2: Patch libseccore.so socket() -> return -1 ===")
+NULL_STUB = bytes([0x00,0x00,0x80,0x12, 0xc0,0x03,0x5f,0xd6, 0x1f,0x20,0x03,0xd5, 0x1f,0x20,0x03,0xd5])
+
+for so_file in sorted(APK.rglob("libseccore.so")):
+    data = bytearray(so_file.read_bytes())
     e_shoff = struct.unpack_from('<Q', data, 0x28)[0]
     e_shentsize = struct.unpack_from('<H', data, 0x3A)[0]
     e_shnum = struct.unpack_from('<H', data, 0x3C)[0]
     e_shstrndx = struct.unpack_from('<H', data, 0x3E)[0]
-    sections = []
+    sec = []
     for i in range(e_shnum):
         off = e_shoff + i * e_shentsize
         sh_name = struct.unpack_from('<I', data[off:off+4])[0]
-        sh_type = struct.unpack_from('<I', data[off+4:off+8])[0]
-        sh_flags = struct.unpack_from('<Q', data[off+8:off+16])[0]
-        sh_addr = struct.unpack_from('<Q', data[off+16:off+24])[0]
-        sh_offset = struct.unpack_from('<Q', data[off+24:off+32])[0]
-        sh_size = struct.unpack_from('<Q', data[off+32:off+40])[0]
-        sections.append(dict(name=sh_name, type=sh_type, flags=sh_flags, addr=sh_addr, offset=sh_offset, size=sh_size))
-    sst = data[sections[e_shstrndx]['offset']:sections[e_shstrndx]['offset']+sections[e_shstrndx]['size']]
-    for s in sections:
+        _, sh_flags, sh_addr, sh_offset, sh_size = struct.unpack_from('<IQQQQ', data[off+4:off+36])
+        sec.append(dict(name=sh_name, offset=sh_offset, size=sh_size))
+    sst = data[sec[e_shstrndx]['offset']:sec[e_shstrndx]['offset']+sec[e_shstrndx]['size']]
+    for s in sec:
         end = sst.find(b'\x00', s['name'])
         s['label'] = sst[s['name']:end].decode('ascii', errors='replace') if end > 0 else ''
-    dynsym = next(s for s in sections if s.get('label') == '.dynsym')
-    dynstr = next(s for s in sections if s.get('label') == '.dynstr')
-    relaplt = next((s for s in sections if s.get('label') == '.rela.plt'), None)
-    plt = next((s for s in sections if s.get('label') == '.plt'), None)
-    if not relaplt or not plt:
-        print(f"  Missing .rela.plt or .plt"); return
-    ds = data[dynsym['offset']:dynsym['offset']+dynsym['size']]
-    dstr = data[dynstr['offset']:dynstr['offset']+dynstr['size']]
-    # Build symbol map
+    dso = next(s for s in sec if s.get('label') == '.dynsym')
+    dto = next(s for s in sec if s.get('label') == '.dynstr')
+    rpo = next(s for s in sec if s.get('label') == '.rela.plt')
+    po = next(s for s in sec if s.get('label') == '.plt')
+    ds = data[dso['offset']:dso['offset']+dso['size']]
+    dstr = data[dto['offset']:dto['offset']+dto['size']]
+    rd = data[rpo['offset']:rpo['offset']+rpo['size']]
     sym_map = {}
-    for i in range(0, len(ds), 24):
-        st_name = struct.unpack_from('<I', ds[i:i+4])[0]
-        st_shndx = struct.unpack_from('<H', ds[i+6:i+8])[0]
+    for j in range(0, len(ds), 24):
+        st_name = struct.unpack_from('<I', ds[j:j+4])[0]
+        st_shndx = struct.unpack_from('<H', ds[j+6:j+8])[0]
         if st_shndx == 0 and st_name > 0:
-            n = dstr[st_name:dstr.find(b'\x00', st_name)]
-            sym_map[n.decode('ascii', errors='replace')] = i // 24
-    # Patch functions
-    rd = data[relaplt['offset']:relaplt['offset']+relaplt['size']]
-    funcs = ['socket']
-    for fname in funcs:
-        if fname not in sym_map:
-            print(f"  {fname} not in {so_path.name}"); continue
+            n = dstr[st_name:dstr.find(b'\x00', st_name)].decode('ascii', errors='replace')
+            sym_map[n] = j // 24
+    for fname in ['socket']:
+        if fname not in sym_map: continue
         sidx = sym_map[fname]
         for j in range(0, len(rd), 24):
             r_info = struct.unpack_from('<Q', rd[j+8:j+16])[0]
             if (r_info >> 32) == sidx:
-                plt_off = plt['offset'] + 32 + (j // 24) * 16
+                plt_off = po['offset'] + 32 + (j // 24) * 16
                 if plt_off + 16 <= len(data):
-                    # AArch64: movn w0,#0 (w0=-1); ret; nop; nop
-                    data[plt_off:plt_off+16] = bytes([0x00,0x00,0x80,0x12, 0xc0,0x03,0x5f,0xd6, 0x1f,0x20,0x03,0xd5, 0x1f,0x20,0x03,0xd5])
+                    data[plt_off:plt_off+16] = NULL_STUB
                     TOTAL += 1
-                    print(f"  ✅ {so_path.relative_to(APK)} plt[{j//24}] {fname} -> -1")
+                    print(f"  ✅ {so_file.relative_to(APK)} {fname} -> -1")
                 break
     so_file.write_bytes(bytes(data))
 
-print("=== Patch libseccore.so socket() -> -1 ===")
-for so_file in sorted(APK.rglob("libseccore.so")):
-    patch_so(so_file)
-print(f"\nComplete: {TOTAL} files")
+print(f"\nComplete: {TOTAL} patches")
