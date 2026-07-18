@@ -225,115 +225,7 @@ def filter_permissions(manifest_path: Path, keep: set[str]) -> int:
 
 def disable_cleartext(manifest_path: Path) -> None:
     """跳过 cleartext 修改 — 保持 true 以免 HTTP 弹幕数据被拦截"""
-    # Android 9+ 真机严格执行明文拦截，弹幕数据走 HTTP
-    # 不改动 = 保持 usesCleartextTraffic="true"
-    # ponytail: 不改就不存在 bug
     pass
-
-
-# ---------------------------------------------------------------------------
-# Page removal — 按关键词删除页面（商城/赚钱/会员/WebView 等）
-# ---------------------------------------------------------------------------
-
-def remove_pages_by_keywords(source: Path, manifest_path: Path, keywords: list[str]) -> tuple[int, int]:
-    """从 Manifest 和 smali 目录中按关键词删除 Activity/Fragment 页面。
-
-    返回: (deleted_component_count, deleted_directory_count)
-    """
-    if not keywords or not manifest_path:
-        return 0, 0
-
-    content = manifest_path.read_text(encoding="utf-8")
-    comp_count = 0
-    dir_count = 0
-    comps_to_remove: list[str] = []  # full class names to remove from manifest
-
-    # 收集 Matches: activity/service/receiver 的 android:name 含关键词
-    # 用正则匹配所有组件声明
-    comp_pattern = re.compile(
-        r'<(activity|service|receiver|provider|fragment)\s+[^>]*?android:name\s*=\s*"([^"]*)"',
-        re.DOTALL,
-    )
-    seen = set()
-
-    for kw in keywords:
-        kw_lower = kw.lower()
-        for m in comp_pattern.finditer(content):
-            comp_name = m.group(2)
-            if comp_name in seen:
-                continue
-            # 检查类名或包名是否含关键词
-            if kw_lower in comp_name.lower() or kw_lower in comp_name.split(".")[-1].lower():
-                seen.add(comp_name)
-                comps_to_remove.append(comp_name)
-                comp_count += 1
-                print(f"  ✓ 标记页面: {comp_name} (关键词: {kw})")
-
-    if not comps_to_remove:
-        print("  → 未找到匹配的页面组件")
-        return 0, 0
-
-    # 删除 Manifest 组件声明
-    comp_escape_map = {c: re.escape(c) for c in comps_to_remove}
-    for comp in comps_to_remove:
-        escaped = comp_escape_map[comp]
-        # 自闭合
-        pattern1 = re.compile(
-            rf'<(activity|service|receiver|provider)\s+[^>]*?android:name\s*=\s*"{escaped}"[^>]*?/>',
-            re.DOTALL,
-        )
-        content, n1 = pattern1.subn(lambda m, c=comp: f"<!-- removed: {c} -->", content)
-        # 配对
-        pattern2 = re.compile(
-            rf'<(activity|service|receiver|provider)\s+[^>]*?android:name\s*=\s*"{escaped}"[^>]*?>.*?</\1>',
-            re.DOTALL,
-        )
-        content, n2 = pattern2.subn(lambda m, c=comp: f"<!-- removed: {c} -->", content)
-        if n1 + n2 > 0:
-            print(f"  ✓ 移除 Manifest 组件声明 ({n1 + n2} 处): {comp}")
-
-    manifest_path.write_text(content, encoding="utf-8")
-
-    # 删除对应的 smali 目录（按包名路径在 smali* 下搜索）
-    dir_count = delete_component_directories(source, comps_to_remove)
-
-    return comp_count, dir_count
-
-
-def delete_component_directories(source: Path, class_names: list[str]) -> int:
-    """根据完整类名删除对应的 smali 目录。"""
-    count = 0
-    for cls in class_names:
-        # 去掉前面的 L 和结尾 ;
-        cls_clean = cls
-        if cls_clean.startswith("L"):
-            cls_clean = cls_clean[1:]
-        if cls_clean.endswith(";"):
-            cls_clean = cls_clean[:-1]
-
-        # 转目录路径: com.example.Foo -> com/example/Foo
-        dir_path = cls_clean.replace(".", "/")
-
-        # 在 smali* 目录下找
-        for smali_dir in sorted(source.glob("smali*")):
-            if not smali_dir.is_dir():
-                continue
-            target = smali_dir / dir_path
-            if target.exists():
-                try:
-                    target.resolve().relative_to(source.resolve())
-                except ValueError:
-                    continue
-                # 如果是文件就删文件，目录就删目录
-                if target.is_file() and target.suffix == ".smali":
-                    target.unlink()
-                    count += 1
-                    print(f"  ✓ 删除 smali 文件: {target.relative_to(source)}")
-                elif target.is_dir():
-                    shutil.rmtree(target)
-                    count += 1
-                    print(f"  ✓ 删除 smali 目录: {target.relative_to(source)}")
-    return count
 
 
 # ---------------------------------------------------------------------------
@@ -436,16 +328,7 @@ def main() -> int:
     else:
         print("  (manifest 不存在或 keep_perms 为空，跳过)")
 
-    # ---- Phase 5: 按关键词删除页面（商城/赚钱/WebView等） ----
-    print("\n=== Phase 5: 按关键词删除页面 ===")
-    page_keywords = ad_config.get("pages_to_remove", [])
-    if manifest and page_keywords:
-        comp_n, dir_n = remove_pages_by_keywords(source, manifest, page_keywords)
-        print(f"  → 移除 {comp_n} 个组件声明, 删除 {dir_n} 个 smali 目录")
-    else:
-        print("  (pages_to_remove 为空，跳过)")
-
-    # ---- Phase 6: Cleartext true → false ----
+    # ---- Phase 5: Cleartext true → false ----
     print("\n=== Phase 5: Cleartext 修复 ===")
     if manifest:
         disable_cleartext(manifest)
