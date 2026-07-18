@@ -10,7 +10,7 @@ on:
 jobs:
   triage:
     runs-on: ubuntu-22.04
-    timeout-minutes: 60
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
