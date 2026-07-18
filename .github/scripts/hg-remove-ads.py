@@ -411,7 +411,7 @@ def main() -> int:
     print("\n=== Phase 3: 删除 Fragment 页面 ===")
     frag_keywords = ad_config.get("fragment_keywords", [])
     if frag_keywords:
-        n = find_and_delete_fragment_pages(source, frag_keywords)
+        n = find_and_stub_fragment_pages(source, frag_keywords)
         print(f"  → 删除 {n} 个 Fragment 目录")
     else:
         print("  (fragment_keywords 为空，跳过)")
