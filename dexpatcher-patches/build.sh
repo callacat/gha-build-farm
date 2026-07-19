@@ -20,7 +20,7 @@ echo "  android.jar: ${ANDROID_JAR:-NOT FOUND}"
 echo "==> Compiling patch..."
 CP="$PATCH_DIR/lib/dexpatcher-annotation-1.7.0.jar"
 [ -n "$ANDROID_JAR" ] && CP="$CP:$ANDROID_JAR"
-javac $CP -d "$BUILD_DIR/classes" "$PATCH_DIR/src/com/dragon/read/MuteApplicationStub.java"
+javac -cp "$CP" -d "$BUILD_DIR/classes" "$PATCH_DIR/src/com/dragon/read/MuteApplicationStub.java"
 echo "  ✓ Classes compiled ($(find $BUILD_DIR/classes -name '*.class' | wc -l) classes)"
 
 # Step 2: Convert to DEX
