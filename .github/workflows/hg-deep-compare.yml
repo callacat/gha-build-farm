@@ -1,0 +1,76 @@
+name: HG Deep Compare
+run-name: Deep compare official vs modded
+
+on:
+  workflow_dispatch:
+    inputs:
+      official_apk_url:
+        description: '官方版 APK URL'
+        required: true
+        type: string
+      modded_apk_url:
+        description: '鹿属修改版 APK URL'
+        required: true
+        type: string
+
+env:
+  OFFICIAL_URL: ${{ inputs.official_apk_url }}
+  MODDED_URL: ${{ inputs.modded_apk_url }}
+
+jobs:
+  deep-compare:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Install apktool
+        run: |
+          curl -sL "https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar" -o /opt/apktool.jar
+          printf '#!/bin/bash\njava -jar /opt/apktool.jar "$@"\n' > /opt/apktool && chmod +x /opt/apktool
+
+      - name: Download official APK
+        run: |
+          curl -sL --max-time 300 "$OFFICIAL_URL" -o /tmp/official.apk -w "HTTP %{http_code}, %{size_download}B\n"
+          ls -lh /tmp/official.apk && file /tmp/official.apk
+
+      - name: Download modded APK
+        run: |
+          curl -sL --max-time 300 "$MODDED_URL" -o /tmp/modded.apk -w "HTTP %{http_code}, %{size_download}B\n"
+          ls -lh /tmp/modded.apk && file /tmp/modded.apk
+
+      - name: apktool decode both
+        run: |
+          /opt/apktool d /tmp/official.apk -o /tmp/official -f 2>&1 | tail -3
+          /opt/apktool d /tmp/modded.apk -o /tmp/modded -f 2>&1 | tail -3
+          echo "=== smali counts ==="
+          echo "Official: $(find /tmp/official -name '*.smali' | wc -l)"
+          echo "Modded: $(find /tmp/modded -name '*.smali' | wc -l)"
+
+      - name: 🚀 Run deep comparison
+        run: |
+          python3 .github/scripts/hg-deep-compare.py /tmp/official/ /tmp/modded/
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deep-compare-report
+          path: |
+            /tmp/deep-compare-report.txt
+            /tmp/deep-compare-summary.json
+          compression-level: 0
+          retention-days: 14
+
+      - name: Display summary
+        if: always()
+        run: |
+          echo "=== DEEP COMPARE SUMMARY ==="
+          cat /tmp/deep-compare-report.txt 2>/dev/null | head -100 || echo "(no report generated)"
+          echo ""
+          echo "=== FULL REPORT ==="
+          wc -l /tmp/deep-compare-report.txt 2>/dev/null || echo "(none)"
