@@ -63,8 +63,11 @@ jobs:
 
       - name: 🛠️ Run DexPatcher HelloWorld build
         shell: bash
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
         run: |
-          bash dexpatcher-patches/build.sh /tmp/target.apk /tmp/patched.apk
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          bash dexpatcher-patches/build.sh /tmp/target.apk "$SDK" /tmp/patched.apk
 
       - name: 🛠️ Sign patched APK
         run: |
