@@ -64,13 +64,13 @@ echo "==> Applying smali patch to BottomTabBarItemType.findByValue..."
 SDK="$SDK" BUILD_DIR="$BUILD_DIR" python3 "$SCRIPT_DIR/smali-patch-findbyvalue.py" \
   "$BUILD_DIR/dex-orig" "$SDK" || echo "  smali patch optional, continuing"
 
-echo "==> Rebuilding APK..."
-python3 << 'PYEOF'
+echo "==> Rebuilding APK with patched dex..."
+python3 << PYEOF
 import zipfile, os
 
-BUILD_DIR = os.environ['BUILD_DIR']
-OUTPUT_APK = os.environ['OUTPUT_APK']
-TARGET_APK = os.environ['TARGET_APK']
+BUILD_DIR = "$BUILD_DIR"
+OUTPUT_APK = "$OUTPUT_APK"
+TARGET_APK = "$TARGET_APK"
 DEX_ORIG = os.path.join(BUILD_DIR, "dex-orig")
 
 patched = {}

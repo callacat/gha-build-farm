@@ -8,17 +8,23 @@ Usage: smali-patch-findbyvalue.py <dex-files-dir> <sdk-dir>
 import sys, os, subprocess, tempfile, shutil
 
 def find_bak_smali(sdk):
-    """Find baksmali and smali jars."""
+    """Find baksmali and smali tools (executables or jars)."""
     bt = os.path.join(sdk, "build-tools")
     if not os.path.isdir(bt):
         return None, None
     versions = sorted(os.listdir(bt), reverse=True)
     for v in versions:
         d = os.path.join(bt, v)
-        bak = os.path.join(d, "baksmali.jar")
-        sm = os.path.join(d, "smali.jar")
-        if os.path.exists(bak) and os.path.exists(sm):
-            return bak, sm
+        # Check for executables
+        bak_exe = os.path.join(d, "baksmali")
+        sm_exe = os.path.join(d, "smali")
+        if os.path.exists(bak_exe) and os.path.exists(sm_exe):
+            return bak_exe, sm_exe
+        # Fallback to jars
+        bak_jar = os.path.join(d, "baksmali.jar")
+        sm_jar = os.path.join(d, "smali.jar")
+        if os.path.exists(bak_jar) and os.path.exists(sm_jar):
+            return bak_jar, sm_jar
     return None, None
 
 
