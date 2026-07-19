@@ -2,7 +2,6 @@
   "packages_to_delete": [
     "com/dragon/read/story/impl/tab/page/bookmall",
     "com/dragon/read/component/biz/impl/seriesmall",
-    "com/dragon/read/ecom",
     "com/dragon/read/appwidget/welfaretask"
   ]
 }
