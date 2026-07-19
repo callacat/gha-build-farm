@@ -1,7 +1,5 @@
 package com.dragon.read.ad.reward.impl;
 
-import com.bytedance.tomato.entity.AdSourceEnum;
-import java.util.Collections;
 import java.util.List;
 
 import lanchon.dexpatcher.annotation.DexAction;
@@ -11,11 +9,6 @@ import lanchon.dexpatcher.annotation.DexReplace;
 /** 激励广告 — 返回空数据，不请求广告 */
 @DexEdit(defaultAction = DexAction.IGNORE)
 public final class HongguoRewardServiceImpl {
-
-    @DexReplace
-    public List<AdSourceEnum> getAdSource(String from) {
-        return Collections.emptyList();
-    }
 
     @DexReplace
     public String getRewardAdReportPosition(String str) {
