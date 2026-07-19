@@ -38,6 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **去广告版**: strategy v2 — from directory deletion to smali method body stubbing (`hg-smali-stub.py`)
+- **去广告版**: strategy v3 — stub list updated based on jadx verification of R8-obfuscated ad SDK packages (bytedance/admetaversesdk, bytedance/tomato, bytedance/reader_ad, ss/android/*, app-side bridges)
+
+### Changed
+
 - APK fetch: URL-specified download takes priority; falls back to release cache
 - Release: versioned APK filenames with build number (`hg-remove-ads-{version}-b{build}.apk`)
 - Release: `latest` tag always points to newest build; versioned tags kept for last 5 releases

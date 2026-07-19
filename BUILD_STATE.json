@@ -1,5 +1,18 @@
 {
-  "latest_remove_ads": null,
-  "latest_patch": null,
-  "last_analysis": null
+  "latest_remove_ads": {
+    "version": "7.2.7.32",
+    "run_id": 29689708080,
+    "status": "in_progress",
+    "strategy": "v4 — jadx-verified stub list, removed com/ss/android/ad (core crash)"
+  },
+  "latest_patch": {
+    "version": "hg-original-7.2.8.32",
+    "run_id": 29683783622,
+    "status": "success"
+  },
+  "last_analysis": {
+    "version": "7.2.7.32",
+    "run_id": 29688499005,
+    "status": "success"
+  }
 }
