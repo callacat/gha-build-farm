@@ -24,11 +24,7 @@
     "com/bytedance/sdk/wx",
     "com/bytedance/sdk/we",
     "com/bytedance/adlive",
-    "com/bytedance/creative",
-    "com/bytedance/ecom",
-    "com/bytedance/ug",
-    "com/bytedance/mob",
-    "com/bytedance/mgl"
+    "com/bytedance/mob"
   ],
 
   "providers_to_remove": [
