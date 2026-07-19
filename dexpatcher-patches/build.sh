@@ -44,7 +44,7 @@ echo "  ✓ DEX: $BUILD_DIR/dex/classes.dex ($(wc -c < $BUILD_DIR/dex/classes.de
 # Step 3: Apply patches with dexpatcher (multi-dex enabled)
 echo "==> Applying DexPatcher patches..."
 java -jar "$PATCH_DIR/lib/dexpatcher.jar" \
-  --verbose -J \
+  --verbose -m \
   -o "$OUTPUT_APK" \
   "$TARGET_APK" \
   "$BUILD_DIR/dex/classes.dex"
