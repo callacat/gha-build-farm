@@ -109,15 +109,21 @@ stub = """\
 .end method
 """
 
-# Put stub in the first smali dir that has any CJPay file
+# Put stub in smali_classes24 (where caijing SDK was originally)
+target_dir = None
 for smali_dir in sorted(APK.glob("smali*")):
     if not smali_dir.is_dir(): continue
-    target = smali_dir / "com" / "bytedance" / "caijing" / "sdk" / "infra" / "base" / "api" / "plugin" / "provider"
-    target.mkdir(parents=True, exist_ok=True)
-    (target / "CJPayFileProvider.smali").write_text(stub, encoding="utf-8")
-    print(f"  ✅ Stub created: {target}/CJPayFileProvider.smali")
-    TOTAL += 1
-    break
+    if "smali_classes24" in smali_dir.name:
+        target_dir = smali_dir
+        break
+if not target_dir:
+    dirs = sorted([d for d in APK.glob("smali*") if d.is_dir()])
+    target_dir = dirs[-1] if dirs else APK
+target = target_dir / "com" / "bytedance" / "caijing" / "sdk" / "infra" / "base" / "api" / "plugin" / "provider"
+target.mkdir(parents=True, exist_ok=True)
+(target / "CJPayFileProvider.smali").write_text(stub, encoding="utf-8")
+print(f"  ✅ Stub created: {target}/CJPayFileProvider.smali")
+TOTAL += 1
 
 # ── Step 2: Fix WXPayEntryActivity extends ──
 print("\n=== Step 2: Fix WXPayEntryActivity extends ===")
