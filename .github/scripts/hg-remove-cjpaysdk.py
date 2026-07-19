@@ -55,7 +55,7 @@ for f in APK.rglob("*.smali"):
         break
 
 # ── Step 3: NOP CJPaySDK invoke calls in app smali ──
-print("\n=== Step 3: NOP CJPaySDK invoke calls ===")
+print("\n=== Step 3: NOP CJPaySDK invoke calls + initCaijing() ===")
 CJPAY_INVOKE = re.compile(r'invoke-\w+\s+\{[^}]*\},\s*L(?:com/android/ttcjpaysdk/|com/bytedance/caijing/)[^;]+;->')
 CONST_CLASS = re.compile(r'const-class\s+[vp]\d+,\s*L(?:com/android/ttcjpaysdk/|com/bytedance/caijing/)[^;]+;')
 
@@ -107,6 +107,44 @@ for f in sorted(APK.rglob("*.smali")):
             continue
         new_lines.append(line)
         i += 1
+    if patched:
+        f.write_text("".join(new_lines), encoding="utf-8")
+
+# ── Step 3b: NOP initCaijing() method in NsCaijingProxy ──
+print("\n=== Step 3b: NOP initCaijing() ===")
+for f in sorted(APK.rglob("*.smali")):
+    text = f.read_text("utf-8", errors="replace")
+    if "initCaijing" not in text:
+        continue
+    lines = text.splitlines(keepends=True)
+    new_lines = []
+    i, patched = 0, False
+    while i < len(lines):
+        stripped = lines[i].strip()
+        if stripped.startswith(".method ") and "initCaijing" in stripped:
+            indent = re.match(r"^(\s*)", lines[i]).group(1)
+            # Find .end method
+            j = i + 1
+            depth = 0
+            while j < len(lines):
+                s = lines[j].strip()
+                if s.startswith(".method "): depth += 1
+                elif s.startswith(".end method"):
+                    if depth == 0:
+                        new_lines.append(f"{indent}.method public static initCaijing(Landroid/content/Context;)V\n")
+                        new_lines.append(f"{indent}    .locals 0\n")
+                        new_lines.append(f"{indent}    return-void  # CJPaySDK removed\n")
+                        new_lines.append(f"{indent}.end method\n")
+                        i = j + 1
+                        patched = True
+                        TOTAL += 1
+                        print(f"  ✅ {f.relative_to(APK)}: initCaijing NOP'd")
+                        break
+                    depth -= 1
+                j += 1
+            if not patched: new_lines.append(lines[i]); i += 1
+        else:
+            new_lines.append(lines[i]); i += 1
     if patched:
         f.write_text("".join(new_lines), encoding="utf-8")
 
