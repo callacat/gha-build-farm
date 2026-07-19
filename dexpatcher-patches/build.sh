@@ -61,69 +61,8 @@ done
 
 # Step: smali patch — modify BottomTabBarItemType.findByValue
 echo "==> Applying smali patch to BottomTabBarItemType.findByValue..."
-SMALI=$(find "$SDK/build-tools" -name smali 2>/dev/null | sort -Vr | head -1)
-BAKSMALI=$(find "$SDK/build-tools" -name baksmali 2>/dev/null | sort -Vr | head -1)
-
-if [ -n "$BAKSMALI" ]; then
-  # Find BottomTabBarItemType in the patched dex files
-  for dex in "$BUILD_DIR/dex-orig"/classes*.dex; do
-    name=$(basename "$dex")
-    # Quick check if this dex contains BottomTabBarItemType
-    if strings "$dex" | grep -q "BottomTabBarItemType"; then
-      echo "  Found BottomTabBarItemType in $name"
-      OUTDIR="$BUILD_DIR/baksmali-$name"
-      java -jar "$BAKSMALI" d "$dex" -o "$OUTDIR" 2>/dev/null || true
-      PATCHED=false
-      for smali_file in $(find "$OUTDIR" -name "*BottomTabBarItemType*" 2>/dev/null); do
-        if grep -q 'findByValue' "$smali_file"; then
-          echo "    Patching findByValue in $(basename $smali_file)..."
-          # Insert early return for LuckyBenefit(2) and ShopMall(5)
-          python3 -c "
-import sys
-with open('$smali_file') as f:
-    content = f.read()
-
-if '.method public static findByValue' not in content:
-    print('    - No findByValue method')
-    sys.exit(0)
-
-insert = '''    # filtered by hg-ad-removal: skip ShopMall(5) and LuckyBenefit(2)
-    const/4 v0, 0x5
-    if-ne p0, v0, :check_lucky
-    const/4 v0, 0x0
-    return-object v0
-    :check_lucky
-    const/4 v0, 0x2
-    if-ne p0, v0, :original_switch
-    const/4 v0, 0x0
-    return-object v0
-    :original_switch
-'''
-
-content = content.replace(
-    '.method public static findByValue(I)Lcom/dragon/read/rpc/model/BottomTabBarItemType;',
-    '.method public static findByValue(I)Lcom/dragon/read/rpc/model/BottomTabBarItemType;\n' + insert
-)
-if content != open('$smali_file').read():
-    with open('$smali_file', 'w') as f:
-        f.write(content)
-    print('    ✓ Patched')
-    PATCHED = True
-else:
-    print('    ✗ Match failed')
-" 2>&1 || true
-      done
-      if [ "$PATCHED" = true ]; then
-        # Rebuild dex
-        java -jar "$SMALI" a "$OUTDIR" -o "$dex" 2>&1 | tail -2
-        echo "    ✓ Dex rebuilt"
-      fi
-      rm -rf "$OUTDIR"
-    fi
-  done
-else
-  echo "  baksmali not found, skip smali patch"
-fi
+SDK="$SDK" BUILD_DIR="$BUILD_DIR" python3 "$SCRIPT_DIR/smali-patch-findbyvalue.py" \
+  "$BUILD_DIR/dex-orig" "$SDK" || echo "  smali patch optional, continuing"
 
 echo "==> Rebuilding APK..."
 python3 << 'PYEOF'
