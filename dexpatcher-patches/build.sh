@@ -92,10 +92,11 @@ with zipfile.ZipFile(OUTPUT_APK, 'w', zipfile.ZIP_DEFLATED) as zout:
     for item, data in entries:
         name = item.filename
         if name in patched:
-            zout.writestr(name, patched[name])
+            # DEX files must be stored (uncompressed) for Android mmap
+            zout.writestr(zipfile.ZipInfo(name), patched[name])
             print(f'  Replaced {name} ({len(patched[name])} bytes)')
         else:
-            zout.writestr(name, data)
+            zout.writestr(item, data)
 
 with zipfile.ZipFile(OUTPUT_APK) as z:
     names = z.namelist()
