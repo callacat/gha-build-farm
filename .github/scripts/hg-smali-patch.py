@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import sys
 """Hongguo v7.2.7.32 — poison domains + disable checkUpdate"""
 import re, sys
 from pathlib import Path

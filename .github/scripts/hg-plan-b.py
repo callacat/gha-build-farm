@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import sys
 """方案B: 删除包含 oneseeker/remote.oneseeker/dongle.oneseeker 的 const-string 行"""
 import re, sys
 from pathlib import Path

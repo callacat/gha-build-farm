@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import sys
 """方案A: 替换 oneseeker/remote.oneseeker/dongle.oneseeker 为 LDPlayer 域名"""
 import re, sys
 from pathlib import Path

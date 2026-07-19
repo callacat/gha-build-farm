@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import sys
 """NOP CJPaySDK calls + Manifest cleanup. Do NOT delete files (libseccore.so JNI refs).
 1. WXPayEntryActivity extends fix
 2. NOP CJPay invoke calls + initCaijing()

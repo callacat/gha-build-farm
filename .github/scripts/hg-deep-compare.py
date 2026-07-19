@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import sys
 """红果短剧 官方版 vs 鹿属修改版 深度全量分析
 Usage: python3 hg-deep-compare.py /tmp/official/ /tmp/modded/
 

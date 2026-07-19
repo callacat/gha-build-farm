@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import sys
 """Find the exact smali class containing the dialog text '7.2.8.32' or '2026.7.11'"""
 import re, sys
 from pathlib import Path

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import sys
 """Hongguo v19 — Precision patch: NOP InsertScreenView.showView() dialog show.
 
 Target: com/ss/android/excitingvideo/InsertScreenView.smali

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import sys
 """NOP the method containing oneseeker.top - runs BEFORE domain poison."""
 import re, sys
 from pathlib import Path
