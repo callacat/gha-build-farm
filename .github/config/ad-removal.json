@@ -1,5 +1,20 @@
 {
   "packages_to_delete": [
-    "com/dragon/read/story/impl/tab/page/bookmall"
+    "ad/cep",
+    "ad/constant",
+    "ad/feedback",
+    "ad/feeddraw",
+    "ad/inspiretail",
+    "ad/llm",
+    "ad/manager",
+    "ad/openingscreenad",
+    "ad/privacy",
+    "ad/rerank",
+    "ad/splash",
+    "ad/zaid",
+    "appwidget/welfaretask",
+    "component/biz/impl/seriesmall",
+    "ecom",
+    "story/impl/tab/page/bookmall"
   ]
 }
