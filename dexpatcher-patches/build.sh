@@ -26,7 +26,7 @@ echo "  ✓ Classes compiled"
 echo "==> Converting to DEX..."
 D8=$(find "$SDK/build-tools" -name d8 2>/dev/null | sort -Vr | head -1)
 "$D8" --lib "$ANDROID_JAR" --min-api 26 --output "$BUILD_DIR/dex-patch" \
-  "$BUILD_DIR/classes/com/dragon/read/MuteApplicationStub.class"
+  $(find "$BUILD_DIR/classes" -name "*.class")
 echo "  ✓ Patch DEX: $(wc -c < $BUILD_DIR/dex-patch/classes.dex) bytes"
 
 echo "==> Extracting dex from APK..."
