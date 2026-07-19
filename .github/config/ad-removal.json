@@ -1,20 +1,8 @@
 {
   "packages_to_delete": [
-    "com/dragon/read/ad/cep",
-    "com/dragon/read/ad/constant",
-    "com/dragon/read/ad/feedback",
-    "com/dragon/read/ad/feeddraw",
-    "com/dragon/read/ad/inspiretail",
-    "com/dragon/read/ad/llm",
-    "com/dragon/read/ad/manager",
-    "com/dragon/read/ad/openingscreenad",
-    "com/dragon/read/ad/privacy",
-    "com/dragon/read/ad/rerank",
-    "com/dragon/read/ad/splash",
-    "com/dragon/read/ad/zaid",
-    "com/dragon/read/appwidget/welfaretask",
+    "com/dragon/read/story/impl/tab/page/bookmall",
     "com/dragon/read/component/biz/impl/seriesmall",
     "com/dragon/read/ecom",
-    "com/dragon/read/story/impl/tab/page/bookmall"
+    "com/dragon/read/appwidget/welfaretask"
   ]
 }
