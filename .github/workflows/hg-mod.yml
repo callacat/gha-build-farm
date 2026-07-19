@@ -401,6 +401,9 @@ jobs:
       # CJPaySDK 步骤跳过 — 对鹿属修改版: libseccore.so JNI 引用导致 SIGSEGV
       # 对官方版需用 hg-remove-cjpaysdk.py
 
+      - name: 🗑️ NOP 鹿属弹窗 (DialogFragmentC4433 + sgcore0)
+        run: python3 .github/scripts/hg-nop-modder-dialog.py /tmp/apktool_out
+
       - name: Search Native .so libraries
         run: bash .github/scripts/hg-search-native.sh /tmp/apktool_out || true
 
