@@ -1,0 +1,158 @@
+name: HG Patch
+run-name: ${{ inputs.app_id || 'hg' }} patch
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_id:
+        description: '应用ID'
+        required: true
+        default: 'hg'
+      apk_url:
+        description: 'APK 下载地址'
+        required: true
+
+jobs:
+  patch:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Install apktool
+        run: |
+          curl -sL "https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar" -o /opt/apktool.jar
+          printf '#!/bin/bash\njava -jar /opt/apktool.jar "$@"\n' > /opt/apktool && chmod +x /opt/apktool
+
+      - name: Install signing tools
+        run: |
+          keytool -genkey -v -keystore /tmp/debug.keystore -alias androiddebugkey \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass android -keypass android \
+            -dname "CN=Android Debug, O=Android, C=US" 2>/dev/null
+
+      - name: Download APK
+        run: |
+          curl -sL --max-time 300 "${{ inputs.apk_url }}" -o /tmp/${{ inputs.app_id }}.apk
+          ls -lh /tmp/${{ inputs.app_id }}.apk && file /tmp/${{ inputs.app_id }}.apk
+
+      - name: apktool decode
+        run: |
+          /opt/apktool d /tmp/${{ inputs.app_id }}.apk -o /tmp/apktool_out -f 2>&1 | tail -5
+          echo "=== smali dirs ==="; ls -d /tmp/apktool_out/smali* 2>/dev/null | wc -l
+
+      # ── Step 1: Domain poison (clear oneseeker strings) ──
+      - name: 1. Plan B — Clear oneseeker strings
+        run: python3 .github/scripts/hg-plan-b.py /tmp/apktool_out
+
+      # ── Step 2: Domain poison (redirect) ──
+      - name: 2. Plan A — Domain redirect
+        run: python3 .github/scripts/hg-plan-a.py /tmp/apktool_out
+
+      # ── Step 3: Smali domain poison + checkUpdate disable ──
+      - name: 3. Domain poison + checkUpdate disable
+        run: python3 .github/scripts/hg-smali-patch.py /tmp/apktool_out
+
+      # ── Step 4: NOP update dialogs ──
+      - name: 4. NOP update dialogs
+        run: python3 .github/scripts/hg-update-patch.py /tmp/apktool_out /tmp/${{ inputs.app_id }}.apk
+
+      # ── Step 5: Block remote dialogs (trust-anchors + gethostbyname) ──
+      - name: 5. Block remote dialogs
+        run: python3 .github/scripts/hg-nop-dialog-native.py /tmp/apktool_out
+
+      # ── Step 6: NOP CJPaySDK calls ──
+      - name: 6. NOP CJPaySDK calls
+        run: python3 .github/scripts/hg-remove-cjpaysdk.py /tmp/apktool_out
+
+      # ── Rebuild ──
+      - name: Rebuild APK
+        run: |
+          python3 .github/scripts/fix-public-xml.py
+          /opt/apktool b /tmp/apktool_out -o /tmp/${{ inputs.app_id }}-unsigned.apk 2>&1
+          ls -lh /tmp/${{ inputs.app_id }}-unsigned.apk
+
+      # ── Sign ──
+      - name: Sign APK
+        run: |
+          SDK=/usr/local/lib/android/sdk; [ -d "$SDK" ] || SDK=$ANDROID_HOME
+          BT=$(find "$SDK/build-tools" -maxdepth 1 -type d | sort -Vr | head -1)
+          zip -d /tmp/${{ inputs.app_id }}-unsigned.apk 'META-INF/*.SF' 'META-INF/*.RSA' 'META-INF/*.DSA' 'META-INF/MANIFEST.MF' 2>/dev/null || true
+          $BT/zipalign -v -p 4 /tmp/${{ inputs.app_id }}-unsigned.apk /tmp/${{ inputs.app_id }}-aligned.apk 2>&1 | tail -2
+          $BT/apksigner sign --ks /tmp/debug.keystore --ks-pass pass:android \
+            --ks-key-alias androiddebugkey \
+            --v2-signing-enabled true --v3-signing-enabled true \
+            --out /tmp/${{ inputs.app_id }}-signed.apk /tmp/${{ inputs.app_id }}-aligned.apk 2>&1 | tail -5
+          VERSION=$(grep -oP 'versionName="[^"]*"' /tmp/apktool_out/AndroidManifest.xml 2>/dev/null | sed 's/versionName="//;s/"//')
+          APK_NAME="${{ inputs.app_id }}-patch-${VERSION}-b${{ github.run_number }}.apk"
+          cp /tmp/${{ inputs.app_id }}-signed.apk "/tmp/$APK_NAME"
+          echo "APK_NAME=$APK_NAME" >> $GITHUB_ENV
+          echo "APK_VERSION=${VERSION:-unknown}" >> $GITHUB_ENV
+
+      # ── Upload to Release ──
+      - name: Upload to Release
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
+        run: |
+          ID="${{ inputs.app_id }}"
+          VERSION="${APK_VERSION:-unknown}"
+          APK_NAME="${APK_NAME:-$ID-patch.apk}"
+          TAG_VERSION="v${VERSION}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          rm -f /tmp/release-notes.md
+          echo "**📦 红果短剧 去弹窗版**" >> /tmp/release-notes.md
+          echo "" >> /tmp/release-notes.md
+          echo "**版本:** $VERSION" >> /tmp/release-notes.md
+          echo "**构建编号:** ${{ github.run_number }}" >> /tmp/release-notes.md
+          echo "**构建时间:** $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')" >> /tmp/release-notes.md
+          echo "" >> /tmp/release-notes.md
+          echo "**修改内容:**" >> /tmp/release-notes.md
+          echo "- 域名封锁（oneseeker/changzhi 等）" >> /tmp/release-notes.md
+          echo "- NOP 更新弹窗（AlertDialog.show + checkUpdate）" >> /tmp/release-notes.md
+          echo "- NOP CJPaySDK 调用" >> /tmp/release-notes.md
+          echo "- network_security_config 域名屏蔽" >> /tmp/release-notes.md
+          echo "- libseccore.so gethostbyname → NULL（DNS 失效）" >> /tmp/release-notes.md
+          echo "" >> /tmp/release-notes.md
+          echo "**下载:**" >> /tmp/release-notes.md
+          echo "- Latest: https://github.com/${{ github.repository }}/releases/download/$ID-patch-latest/$APK_NAME" >> /tmp/release-notes.md
+          echo "- Versioned: https://github.com/${{ github.repository }}/releases/download/$ID-patch-$TAG_VERSION/$APK_NAME" >> /tmp/release-notes.md
+          echo "- 加速: https://gh-proxy.dsurl.eu.org/https://github.com/${{ github.repository }}/releases/download/$ID-patch-latest/$APK_NAME" >> /tmp/release-notes.md
+
+          gh release delete "$ID-patch-latest" --yes --repo ${{ github.repository }} 2>/dev/null || true
+          git push --delete origin "$ID-patch-latest" 2>/dev/null || true
+          gh release create "$ID-patch-latest" \
+            --repo ${{ github.repository }} \
+            --title "红果短剧 去弹窗版 (latest)" \
+            --notes-file /tmp/release-notes.md \
+            "/tmp/$APK_NAME"
+          gh release delete "$ID-patch-$TAG_VERSION" --yes --repo ${{ github.repository }} 2>/dev/null || true
+          git push --delete origin "$ID-patch-$TAG_VERSION" 2>/dev/null || true
+          gh release create "$ID-patch-$TAG_VERSION" \
+            --repo ${{ github.repository }} \
+            --title "红果短剧 去弹窗版 $TAG_VERSION" \
+            --notes-file /tmp/release-notes.md \
+            "/tmp/$APK_NAME"
+
+      - name: Notify
+        if: always()
+        run: |
+          STATUS="${{ job.status }}"
+          ID="${{ inputs.app_id }}"
+          APK_NAME="${APK_NAME:-$ID-patch.apk}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/$ID-patch-latest/$APK_NAME"
+          GH_PROXY="https://gh-proxy.dsurl.eu.org/${DOWNLOAD_URL}"
+          if [ "$STATUS" = "success" ]; then
+            MSG=$(printf '✅ %s patch 构建成功\nRun: %s\n直链: %s\n加速: %s' "$ID" "$RUN_URL" "$DOWNLOAD_URL" "$GH_PROXY")
+          else
+            MSG=$(printf '❌ %s patch 构建失败\nRun: %s' "$ID" "$RUN_URL")
+          fi
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_BOT_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TG_CHAT_ID }}" \
+            -d "text=$MSG" \
+            -d "parse_mode=HTML" || true

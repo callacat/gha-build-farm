@@ -1,0 +1,100 @@
+name: HG Analyze
+run-name: ${{ inputs.app_id || 'app' }} analysis
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_id:
+        description: '应用ID（hg=红果短剧, fq=番茄小说）'
+        required: true
+        default: 'hg'
+      apk_url:
+        description: 'APK 下载地址'
+        required: true
+
+jobs:
+  analyze:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Install jadx + apktool
+        run: |
+          curl -sL "https://github.com/skylot/jadx/releases/download/v1.5.5/jadx-1.5.5.zip" -o /tmp/jadx.zip
+          unzip -q /tmp/jadx.zip -d /opt/jadx && chmod +x /opt/jadx/bin/jadx
+          curl -sL "https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar" -o /opt/apktool.jar
+          printf '#!/bin/bash\njava -jar /opt/apktool.jar "$@"\n' > /opt/apktool && chmod +x /opt/apktool
+
+      - name: Download APK
+        run: |
+          curl -sL --max-time 300 "${{ inputs.apk_url }}" -o /tmp/${{ inputs.app_id }}.apk
+          ls -lh /tmp/${{ inputs.app_id }}.apk && file /tmp/${{ inputs.app_id }}.apk
+
+      - name: jadx decompile
+        run: |
+          mkdir -p /tmp/jadx_out
+          timeout 300 /opt/jadx/bin/jadx --show-bad-code -d /tmp/jadx_out /tmp/${{ inputs.app_id }}.apk 2>&1 | tail -5
+          echo "=== Java files ==="
+          find /tmp/jadx_out -name '*.java' | wc -l
+
+      - name: apktool decode
+        run: |
+          /opt/apktool d /tmp/${{ inputs.app_id }}.apk -o /tmp/apktool_out -f 2>&1 | tail -5
+          echo "=== smali dirs ==="
+          ls -d /tmp/apktool_out/smali* 2>/dev/null | wc -l
+
+      # ── Package info ──
+      - name: Package info
+        run: |
+          grep -m1 'package=' /tmp/apktool_out/AndroidManifest.xml || true
+          grep -oP 'version(?:Name|Code)="[^"]*"' /tmp/apktool_out/AndroidManifest.xml || true
+
+      # ── Search: update-related activities ──
+      - name: Search update activities
+        run: |
+          grep -n -i 'update\|check.*version\|Upgrade\|ota' /tmp/apktool_out/AndroidManifest.xml 2>/dev/null || echo "(none)"
+
+      # ── Search: all URLs in smali ──
+      - name: Search non-standard URLs
+        run: python3 .github/scripts/hg-find-trigger.py
+
+      # ── Search: 鹿属 dialog keywords ──
+      - name: Search 鹿属 dialog
+        run: python3 .github/scripts/hg-find-group-dialog.py
+
+      # ── Search: native lib strings ──
+      - name: Search native libs
+        run: |
+          find /tmp/apktool_out/lib -name '*.so' -exec sh -c 'echo "=== {} ==="; strings "$1" 2>/dev/null | grep -iE "http|\.com|\.cn" | head -10' _ {} \;
+
+      # ── Upload full analysis ──
+      - name: Upload analysis artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hg-analysis
+          path: |
+            /tmp/jadx_out/
+            /tmp/apktool_out/AndroidManifest.xml
+          compression-level: 3
+          retention-days: 14
+
+      - name: Upload URL search results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: url-search-results
+          path: /tmp/trigger-analysis.txt
+          compression-level: 0
+          retention-days: 14
+
+      - name: Clean old runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ secrets.PAT }}
+          retain_days: 0
+          keep_minimum_runs: 10
