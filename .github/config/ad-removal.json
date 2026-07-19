@@ -12,7 +12,6 @@
     "com/bytedance/sdk/openadsdk",
     "com/bytedance/sdk/bridge",
     "com/bytedance/sdk/xbridge",
-    "com/ss/android/ad",
     "com/ss/android/downloadlib",
     "com/ss/android/excitingvideo",
     "com/ss/android/downloadad",
