@@ -156,10 +156,13 @@ if manifest.exists():
     text = re.sub(r'<uses-permission android:name="[^"]*cjpay[^"]*"/>\s*', '', text, flags=re.IGNORECASE)
     text = re.sub(r'<permission[^>]*cjpay[^"]*"[^>]*/>\s*', '', text, flags=re.IGNORECASE)
     text = re.sub(r'android:label="CJPay[^"]*"', '', text)
-    text = re.sub(r'(<(?:activity|service|receiver|provider)\s+[^>]*?ttcjpaysdk[^>]*/?>)',
-                  r'<!-- CJPay removed: \1 -->', text)
-    text = re.sub(r'(<(?:activity|service|receiver|provider)\s+[^>]*?bytedance/caijing[^>]*/?>)',
-                  r'<!-- CJPay removed: \1 -->', text)
+    # Match both self-closing AND multi-line component declarations
+    for comp in ['activity', 'service', 'receiver', 'provider']:
+        text = re.sub(r'(<' + comp + r'\s+[^>]*?(?:ttcjpaysdk|caijing)[^>]*/?>)',
+                      r'<!-- CJPay removed: \1 -->', text, flags=re.DOTALL)
+        # Also match block tags with children (like provider with meta-data)
+        text = re.sub(r'(<' + comp + r'\s+(?:[^>]*?(?:ttcjpaysdk|caijing)[^>]*?>[^<]*</' + comp + r'>))',
+                      r'<!-- CJPay removed: \1 -->', text, flags=re.DOTALL)
     manifest.write_text(text, encoding="utf-8")
     print(f"  ✅ Manifest cleaned")
 
