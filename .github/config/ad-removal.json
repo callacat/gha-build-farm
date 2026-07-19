@@ -1,3 +1,5 @@
 {
-  "packages_to_delete": []
+  "packages_to_delete": [
+    "com/dragon/read/story/impl/tab/page/bookmall"
+  ]
 }
