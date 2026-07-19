@@ -63,39 +63,54 @@ for dex in "$BUILD_DIR/dex-orig"/classes*.dex; do
   fi
 done
 
-# Step 5: Rebuild APK by replacing dex entries using Python zipfile
+# Step 5: Rebuild APK — patch dex in-place via Python (handles overlapped entries)
 echo "==> Rebuilding APK with patched dex..."
-python3 << PYEOF
-import zipfile, os, shutil
+python3 << 'PYEOF'
+import zipfile, os
 
-BUILD_DIR = "$BUILD_DIR"
-TARGET_APK = "$TARGET_APK"
-OUTPUT_APK = "$OUTPUT_APK"
+BUILD_DIR = os.environ['BUILD_DIR']
+OUTPUT_APK = os.environ['OUTPUT_APK']
+TARGET_APK = os.environ['TARGET_APK']
 DEX_ORIG = os.path.join(BUILD_DIR, "dex-orig")
-
-# Copy original APK
-shutil.copy2(TARGET_APK, "$BUILD_DIR/temp.apk")
 
 # Read patched dex files
 patched = {}
-for f in os.listdir(DEX_ORIG):
+for f in sorted(os.listdir(DEX_ORIG)):
     if f.endswith('.dex') and not f.endswith('.patched'):
         fp = os.path.join(DEX_ORIG, f)
         patched[f] = open(fp, 'rb').read()
 
-# Open APK and replace dex entries
-with zipfile.ZipFile("$BUILD_DIR/temp.apk", 'r') as zin:
-    with zipfile.ZipFile(OUTPUT_APK, 'w', zipfile.ZIP_DEFLATED, compresslevel=0) as zout:
-        for item in zin.infolist():
-            name = item.filename
-            if name in patched:
-                print(f"  Replacing {name} ({len(patched[name])} bytes)")
-                zout.writestr(item, patched[name])
-            else:
-                data = zin.read(name)
-                zout.writestr(item, data)
+# Read ALL entries from original APK (handling overlapped entries)
+with zipfile.ZipFile(TARGET_APK, 'r') as z:
+    entries = []
+    seen_names = set()
+    for item in z.infolist():
+        if item.filename in seen_names:
+            continue  # skip overlapped duplicates
+        seen_names.add(item.filename)
+        try:
+            data = z.read(item)
+            entries.append((item, data))
+        except (zipfile.BadZipFile, KeyError):
+            print(f"  (skip overlapped: {item.filename})")
+            continue
 
-print("  ✓ APK rebuilt successfully")
+# Write new APK with patched dex files
+with zipfile.ZipFile(OUTPUT_APK, 'w', zipfile.ZIP_DEFLATED) as zout:
+    for item, data in entries:
+        name = item.filename
+        if name in patched:
+            zout.writestr(name, patched[name])
+            print(f"  Replaced {name} ({len(patched[name])} bytes)")
+        else:
+            zout.writestr(name, data)
+
+# Verify
+with zipfile.ZipFile(OUTPUT_APK) as z:
+    names = z.namelist()
+    dex_count = sum(1 for n in names if n.startswith('classes') and n.endswith('.dex'))
+    print(f"  Entries: {len(names)}, dex files: {dex_count}")
+    print(f"  Has AndroidManifest: {'AndroidManifest.xml' in names}")
 PYEOF
 
 echo "  ✓ Output: $OUTPUT_APK"
