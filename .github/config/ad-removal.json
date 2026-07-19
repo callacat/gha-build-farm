@@ -1,5 +1,60 @@
 {
+  "_comment": "Ad removal configuration for hg-smali-stub.py (v2 strategy: method body stubbing)",
+  "_strategy": "方法体打桩（保留类骨架防止 ClassNotFoundException），不删目录",
+  "_source": "基于 2026-07-19 官方版 7.2.7.32 vs 修改版深度分析结果",
+
+  "packages_to_stub": [
+    "com/bytedance/sdk/openadsdk",
+    "com/bytedance/pangle",
+    "com/bytedance/sdk/component",
+    "com/bytedance/sdk/bridge",
+    "com/bytedance/sdk/dp",
+    "com/bytedance/sdk/gromore",
+    "com/bytedance/sdk/panglelog",
+    "com/bytedance/sdk/download",
+    "com/bytedance/sdk/activity",
+    "com/bytedance/sdk/adbt",
+    "com/bytedance/sdk/ade",
+    "com/bytedance/sdk/mob",
+    "com/bytedance/sdk/static",
+    "com/bytedance/sdk/te",
+    "com/bytedance/sdk/live",
+    "com/bytedance/sdk/plugin",
+    "com/bytedance/sdk/qq",
+    "com/bytedance/sdk/wx",
+    "com/bytedance/sdk/we",
+    "com/bytedance/adlive",
+    "com/bytedance/creative",
+    "com/bytedance/ecom",
+    "com/bytedance/ug",
+    "com/bytedance/mob",
+    "com/bytedance/mgl"
+  ],
+
+  "providers_to_remove": [
+    "com.bytedance.sdk.openadsdk.InitProvider",
+    "com.bytedance.sdk.openadsdk.develop.TTDevInitProvider",
+    "com.bytedance.sdk.openadsdk.multipro.TTMultiProvider",
+    "com.bytedance.sdk.openadsdk.TTCodeProvider",
+    "com.bytedance.pangle.PangleContentProvider"
+  ],
+
+  "permissions_to_remove": [
+    "com.bytedance.sdk.openadsdk.permission.MIPUSH_RECEIVE",
+    "com.bytedance.sdk.openadsdk.permission.OPPO_PUSH",
+    "android.permission.READ_PHONE_STATE",
+    "android.permission.ACCESS_FINE_LOCATION",
+    "android.permission.ACCESS_COARSE_LOCATION"
+  ],
+
   "packages_to_delete": [
-    "com/dragon/read/story/impl/tab/page/bookmall"
+    "com/xiaomi/push",
+    "com/xiaomi/mipush",
+    "com/huawei/hms",
+    "com/huawei/agconnect",
+    "com/vivo/push",
+    "com/heytap/msp",
+    "com/oppo/push",
+    "com/coloros/mcs"
   ]
 }

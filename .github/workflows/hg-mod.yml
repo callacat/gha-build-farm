@@ -623,9 +623,15 @@ jobs:
           find /tmp/apktool_out -name '*.smali' | wc -l
 
 
-      - name: 🧹 Remove ad SDKs + push + permissions
+      - name: 🔧 Fix network security config
         run: |
           python3 .github/scripts/hg-remove-ads.py \
+            --source /tmp/apktool_out \
+            --ad-config .github/config/ad-removal.json
+
+      - name: 🧹 Smali-stub ad SDK packages (method body replacement)
+        run: |
+          python3 .github/scripts/hg-smali-stub.py \
             --source /tmp/apktool_out \
             --ad-config .github/config/ad-removal.json
 
