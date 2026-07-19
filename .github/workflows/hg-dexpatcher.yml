@@ -124,15 +124,19 @@ jobs:
           cp /tmp/signed.apk "/tmp/$APK_NAME"
 
           rm -f /tmp/release-notes.md
-          echo "**DexPatcher HelloWorld Test**" >> /tmp/release-notes.md
+          echo "**📦 红果短剧 去广告版 (DexPatcher)**" >> /tmp/release-notes.md
           echo "" >> /tmp/release-notes.md
-          echo "**目标:** 验证 DexPatcher 链路是否通畅" >> /tmp/release-notes.md
-          echo "**修改:** MuteApplicationStub.onCreate() → Toast 弹窗" >> /tmp/release-notes.md
+          echo "**修改内容:**" >> /tmp/release-notes.md
+          echo "- BsInlandAdServiceImpl.isAvailable → false（关闭国内广告主）" >> /tmp/release-notes.md
+          echo "- ReaderAdSettingsConfigImpl.isReadFlowAd → false（关闭阅读流广告）" >> /tmp/release-notes.md
+          echo "- HongguoBannerServiceImpl → 返回空（横幅广告）" >> /tmp/release-notes.md
+          echo "- HongguoRewardServiceImpl → 返回空（激励广告）" >> /tmp/release-notes.md
           echo "**构建时间:** $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')" >> /tmp/release-notes.md
           echo "**Run:** [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> /tmp/release-notes.md
           echo "" >> /tmp/release-notes.md
           echo "**下载：**" >> /tmp/release-notes.md
           echo "- 直链: https://github.com/${{ github.repository }}/releases/download/hg-dexpatcher-latest/$APK_NAME" >> /tmp/release-notes.md
+          echo "- 加速: https://gh-proxy.dsurl.eu.org/https://github.com/${{ github.repository }}/releases/download/hg-dexpatcher-latest/$APK_NAME" >> /tmp/release-notes.md
 
           gh release delete "hg-dexpatcher-latest" --yes --repo ${{ github.repository }} 2>/dev/null || true
           git push --delete origin "hg-dexpatcher-latest" 2>/dev/null || true
@@ -148,9 +152,12 @@ jobs:
           STATUS="${{ job.status }}"
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           if [ "$STATUS" = "success" ]; then
-            MSG="✅ DexPatcher HelloWorld 构建成功\n$RUN_URL\nhttps://github.com/${{ github.repository }}/releases/download/hg-dexpatcher-latest/hg-dexpatcher-test-b${{ github.run_number }}.apk"
+            MSG=$(printf '✅ DexPatcher 去广告版构建成功\nRun: %s\n直链: %s\n加速: %s' \
+              "$RUN_URL" \
+              "https://github.com/${{ github.repository }}/releases/download/hg-dexpatcher-latest/hg-dexpatcher-test-b${{ github.run_number }}.apk" \
+              "https://gh-proxy.dsurl.eu.org/https://github.com/${{ github.repository }}/releases/download/hg-dexpatcher-latest/hg-dexpatcher-test-b${{ github.run_number }}.apk")
           else
-            MSG="❌ DexPatcher HelloWorld 构建失败\n$RUN_URL"
+            MSG="❌ DexPatcher 去广告版构建失败\n$RUN_URL"
           fi
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_BOT_TOKEN }}/sendMessage" \
             -d "chat_id=${{ secrets.TG_CHAT_ID }}" \
