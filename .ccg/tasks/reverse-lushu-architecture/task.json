@@ -1,0 +1,12 @@
+{
+  "id": "reverse-lushu-architecture",
+  "title": "彻底分析鹿属代码架构：去广告机制、弹窗、崩溃根因",
+  "status": "in_progress",
+  "strategy": "deep-research",
+  "currentPhase": "1",
+  "nextAction": "分析鹿属代码依赖关系图：.so→JNI→smali→app code",
+  "gate": null,
+  "branch": "main",
+  "scope": "reverse-lushu-architecture",
+  "createdAt": "2026-07-19T18:00:00+08:00"
+}

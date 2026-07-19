@@ -1,0 +1,12 @@
+{
+  "id": "hg-dual-mod-paths",
+  "title": "整理红果短剧双修改方向（官方去广告 + 鹿属去弹窗），诊断崩溃问题",
+  "status": "in_progress",
+  "strategy": "deep-research",
+  "currentPhase": "1",
+  "nextAction": "整理工作流文件架构，分析两方向的冲突点和当前问题",
+  "gate": null,
+  "branch": "main",
+  "scope": "hg-dual-mod-paths",
+  "createdAt": "2026-07-18T00:30:00+08:00"
+}

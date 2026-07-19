@@ -1,0 +1,12 @@
+{
+  "id": "standardize-workflow",
+  "title": "规范两个workflow的APK来源、tag命名、更新记录",
+  "status": "in_progress",
+  "strategy": "refactor-safely",
+  "currentPhase": "1",
+  "nextAction": "加载编排策略，拆分子任务，并行执行",
+  "gate": null,
+  "branch": "main",
+  "scope": "standardize-workflow",
+  "createdAt": "2026-07-18T01:00:00+08:00"
+}

@@ -1,30 +1,27 @@
 {
-  "_comment": "Ad removal configuration for hg-smali-stub.py (v2 strategy: method body stubbing)",
-  "_strategy": "方法体打桩（保留类骨架防止 ClassNotFoundException），不删目录",
-  "_source": "基于 2026-07-19 官方版 7.2.7.32 vs 修改版深度分析结果",
+  "_comment": "Ad removal configuration — v3 based on jadx verification of actual ad SDK location (2026-07-19)",
+  "_strategy": "方法体打桩（保留类骨架防止 ClassNotFoundException），基于 jadx 反编译确认 R8 混淆后的真实包名",
+  "_source": "direction1-find-ads 实际 jadx 反编译验证，非猜测",
 
   "packages_to_stub": [
+    "com/bytedance/admetaversesdk",
+    "com/bytedance/tomato",
+    "com/bytedance/reader_ad",
+    "com/bytedance/alliance",
+    "com/bytedance/sdk/adinnovation",
     "com/bytedance/sdk/openadsdk",
-    "com/bytedance/pangle",
-    "com/bytedance/sdk/component",
     "com/bytedance/sdk/bridge",
-    "com/bytedance/sdk/dp",
-    "com/bytedance/sdk/gromore",
-    "com/bytedance/sdk/panglelog",
-    "com/bytedance/sdk/download",
-    "com/bytedance/sdk/activity",
-    "com/bytedance/sdk/adbt",
-    "com/bytedance/sdk/ade",
-    "com/bytedance/sdk/mob",
-    "com/bytedance/sdk/static",
-    "com/bytedance/sdk/te",
-    "com/bytedance/sdk/live",
-    "com/bytedance/sdk/plugin",
-    "com/bytedance/sdk/qq",
-    "com/bytedance/sdk/wx",
-    "com/bytedance/sdk/we",
-    "com/bytedance/adlive",
-    "com/bytedance/mob"
+    "com/bytedance/sdk/xbridge",
+    "com/ss/android/ad",
+    "com/ss/android/downloadlib",
+    "com/ss/android/excitingvideo",
+    "com/ss/android/downloadad",
+    "com/dragon/read/ad/tomato/common/impl",
+    "com/dragon/read/ad/tomato/reward/impl",
+    "com/dragon/read/ad/dark/bridge/fetch",
+    "com/dragon/read/reader/ad/readflow",
+    "com/dragon/read/reader/ad/sdk",
+    "com/dragon/read/nonstandard/ad"
   ],
 
   "providers_to_remove": [
@@ -36,8 +33,6 @@
   ],
 
   "permissions_to_remove": [
-    "com.bytedance.sdk.openadsdk.permission.MIPUSH_RECEIVE",
-    "com.bytedance.sdk.openadsdk.permission.OPPO_PUSH",
     "android.permission.READ_PHONE_STATE",
     "android.permission.ACCESS_FINE_LOCATION",
     "android.permission.ACCESS_COARSE_LOCATION"

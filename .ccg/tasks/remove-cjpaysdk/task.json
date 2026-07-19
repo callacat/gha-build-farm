@@ -1,0 +1,12 @@
+{
+  "id": "remove-cjpaysdk",
+  "title": "删除鹿属 CJPaySDK + 清理 15 处 APP 引用 + 交叉审查",
+  "status": "in_progress",
+  "strategy": "refactor-safely",
+  "currentPhase": "1",
+  "nextAction": "分析 CJPaySDK 所有引用点和删除方案",
+  "gate": null,
+  "branch": "main",
+  "scope": "remove-cjpaysdk",
+  "createdAt": "2026-07-19T01:00:00+08:00"
+}
