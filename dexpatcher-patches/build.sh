@@ -1,5 +1,5 @@
 #!/bin/bash
-# DexPatcher build script — javac → d8 → dexpatcher → smali patch → APK rebuild
+# DexPatcher build → apktool rebuild (可靠方案)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -8,9 +8,8 @@ SDK="${2:-/usr/local/lib/android/sdk}"
 OUTPUT_APK="${3:-/tmp/hg-dexpatcher-helloworld.apk}"
 PATCH_DIR="$SCRIPT_DIR/patches"
 BUILD_DIR="/tmp/dexpatcher-build"
-
 rm -rf "$BUILD_DIR"
-mkdir -p "$BUILD_DIR/classes" "$BUILD_DIR/dex-patch" "$BUILD_DIR/dex-orig"
+mkdir -p "$BUILD_DIR/classes" "$BUILD_DIR/dex-patch"
 
 echo "==> Finding android.jar..."
 ANDROID_JAR=$(find "$SDK/platforms" -name "android.jar" 2>/dev/null | sort -Vr | head -1)
@@ -21,7 +20,7 @@ find "$PATCH_DIR/src" -name "*.java" -print > "$BUILD_DIR/sources.txt"
 CP="$PATCH_DIR/lib/dexpatcher-annotation-1.7.0.jar"
 [ -n "$ANDROID_JAR" ] && CP="$CP:$ANDROID_JAR"
 javac -cp "$CP" -d "$BUILD_DIR/classes" @"$BUILD_DIR/sources.txt"
-echo "  ✓ $(wc -l < $BUILD_DIR/sources.txt) sources compiled"
+echo "  ✓ $(wc -l < $BUILD_DIR/sources.txt) sources"
 
 echo "==> Converting to DEX..."
 D8=$(find "$SDK/build-tools" -name d8 2>/dev/null | sort -Vr | head -1)
@@ -29,83 +28,78 @@ D8=$(find "$SDK/build-tools" -name d8 2>/dev/null | sort -Vr | head -1)
   $(find "$BUILD_DIR/classes" -name "*.class")
 echo "  ✓ Patch DEX: $(wc -c < $BUILD_DIR/dex-patch/classes.dex) bytes"
 
-echo "==> Extracting dex from APK..."
-unzip -q -o "$TARGET_APK" "classes*.dex" -d "$BUILD_DIR/dex-orig"
-NUM_DEX=$(ls "$BUILD_DIR/dex-orig"/classes*.dex 2>/dev/null | wc -l)
-echo "  Found $NUM_DEX dex files"
+echo "==> apktool decode..."
+APKTOOL=$(find /opt -name apktool.jar 2>/dev/null | head -1)
+[ -z "$APKTOOL" ] && APKTOOL=$(find "$SDK" -name apktool.jar 2>/dev/null | head -1)
+[ -z "$APKTOOL" ] && { echo "  Installing apktool..."; curl -sL "https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar" -o /opt/apktool.jar; APKTOOL="/opt/apktool.jar"; }
 
-echo "==> Applying DexPatcher patches..."
+java -jar "$APKTOOL" d "$TARGET_APK" -o "$BUILD_DIR/apktool_out" -f 2>&1 | tail -2
+echo "  ✓ Decoded"
+
+echo "==> Patching smali: BottomTabBarItemType.findByValue..."
+SMALI_OUT="$BUILD_DIR/apktool_out"
+FOUND=0
+for sm in $(find "$SMALI_OUT" -name "*BottomTabBarItemType*" 2>/dev/null); do
+  if grep -q "findByValue" "$sm"; then
+    content=$(cat "$sm")
+    insert='    # filtered by hg-ad-removal
+    const/4 v0, 0x5
+    if-ne p0, v0, :check_lucky
+    const/4 v0, 0x0
+    return-object v0
+    :check_lucky
+    const/4 v0, 0x2
+    if-ne p0, v0, :original_switch
+    const/4 v0, 0x0
+    return-object v0
+    :original_switch'
+    new=$(echo "$content" | sed "s|.method public static findByValue(I)Lcom/dragon/read/rpc/model/BottomTabBarItemType;|.method public static findByValue(I)Lcom/dragon/read/rpc/model/BottomTabBarItemType;\n$insert|")
+    if [ "$new" != "$content" ]; then
+      echo "$new" > "$sm"
+      echo "    ✓ Patched $(basename $sm)"
+      FOUND=1
+    fi
+  fi
+done
+[ $FOUND -eq 0 ] && echo "  ⚠ findByValue smali not found"
+echo "  ($FOUND files patched)"
+
+echo "==> Applying DexPatcher patches to dex..."
+unzip -q -o "$TARGET_APK" "classes*.dex" -d "$BUILD_DIR/dex-orig"
 HIT=0
 for dex in "$BUILD_DIR/dex-orig"/classes*.dex; do
   name=$(basename "$dex")
-  echo "  Processing $name ($(wc -c < "$dex") bytes)..."
   set +e
-  java -jar "$PATCH_DIR/lib/dexpatcher.jar" \
-    --verbose \
-    -o "$BUILD_DIR/dex-orig/$name.patched" \
-    "$dex" \
-    "$BUILD_DIR/dex-patch/classes.dex" 2>&1
+  java -jar "$PATCH_DIR/lib/dexpatcher.jar" --verbose -o "$BUILD_DIR/$name.patched" "$dex" "$BUILD_DIR/dex-patch/classes.dex" 2>/dev/null
   RC=$?
   set -e
   if [ $RC -eq 0 ]; then
-    sz=$(wc -c < "$BUILD_DIR/dex-orig/$name.patched" 2>/dev/null || echo 0)
+    sz=$(wc -c < "$BUILD_DIR/$name.patched" 2>/dev/null || echo 0)
     if [ "$sz" -gt 1000 ]; then
       echo "    ✓ $name patched ($sz bytes)"
-      mv "$BUILD_DIR/dex-orig/$name.patched" "$dex"
+      cp "$BUILD_DIR/$name.patched" "$SMALI_OUT/$name"
       HIT=1
     fi
-  else
-    echo "    - No match in $name"
   fi
 done
 
-# Step: smali patch — modify BottomTabBarItemType.findByValue
-echo "==> Applying smali patch to BottomTabBarItemType.findByValue..."
-SDK="$SDK" BUILD_DIR="$BUILD_DIR" python3 "$SCRIPT_DIR/smali-patch-findbyvalue.py" \
-  "$BUILD_DIR/dex-orig" "$SDK" || echo "  smali patch optional, continuing"
+echo "==> apktool rebuild..."
+cp "$SMALI_OUT/AndroidManifest.xml" "$SMALI_OUT/AndroidManifest.xml.bak"
+java -jar "$APKTOOL" b "$SMALI_OUT" -o "$BUILD_DIR/unsigned.apk" 2>&1 | tail -3
 
-echo "==> Rebuilding APK with patched dex..."
-python3 << PYEOF
-import zipfile, os
+# Sign
+echo "==> Signing..."
+keytool -genkey -v -keystore "$BUILD_DIR/debug.keystore" -alias androiddebugkey \
+  -keyalg RSA -keysize 2048 -validity 10000 -storepass android -keypass android \
+  -dname "CN=Android Debug, O=Android, C=US" 2>/dev/null
+zip -d "$BUILD_DIR/unsigned.apk" 'META-INF/*' 2>/dev/null || true
 
-BUILD_DIR = "$BUILD_DIR"
-OUTPUT_APK = "$OUTPUT_APK"
-TARGET_APK = "$TARGET_APK"
-DEX_ORIG = os.path.join(BUILD_DIR, "dex-orig")
-
-patched = {}
-for f in sorted(os.listdir(DEX_ORIG)):
-    if f.endswith('.dex') and not f.endswith('.patched'):
-        fp = os.path.join(DEX_ORIG, f)
-        patched[f] = open(fp, 'rb').read()
-        print(f"  Replaced {f} ({len(patched[f])} bytes)")
-
-with zipfile.ZipFile(TARGET_APK, 'r') as z:
-    entries = []
-    seen_names = set()
-    for item in z.infolist():
-        if item.filename in seen_names: continue
-        seen_names.add(item.filename)
-        try:
-            data = z.read(item)
-            entries.append((item, data))
-        except: continue
-
-with zipfile.ZipFile(OUTPUT_APK, 'w', zipfile.ZIP_DEFLATED) as zout:
-    for item, data in entries:
-        name = item.filename
-        if name in patched:
-            zout.writestr(item, patched[name])
-        else:
-            zout.writestr(item, data)
-
-with zipfile.ZipFile(OUTPUT_APK) as z:
-    names = z.namelist()
-    dex_count = sum(1 for n in names if n.startswith('classes') and n.endswith('.dex'))
-    print(f"  Entries: {len(names)}, dex files: {dex_count}")
-    print(f"  Has AndroidManifest: {'AndroidManifest.xml' in names}")
-    print(f"  Size: {os.path.getsize(OUTPUT_APK)} bytes")
-PYEOF
+BT=$(find "$SDK/build-tools" -maxdepth 1 -type d | sort -Vr | head -1)
+$BT/zipalign -v -p 4 "$BUILD_DIR/unsigned.apk" "$BUILD_DIR/aligned.apk" 2>&1 | tail -1
+$BT/apksigner sign --ks "$BUILD_DIR/debug.keystore" --ks-pass pass:android \
+  --ks-key-alias androiddebugkey \
+  --out "$OUTPUT_APK" "$BUILD_DIR/aligned.apk" 2>&1 | tail -3
+$BT/apksigner verify --verbose "$OUTPUT_APK" 2>&1 | head -5
 
 echo "HIT=$HIT"
 ls -lh "$OUTPUT_APK"
