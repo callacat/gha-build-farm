@@ -36,11 +36,15 @@ jobs:
 
       - name: Download APK
         run: |
-          curl -sL --max-time 600 -o /tmp/app.apk \
-            "${{ inputs.apk-url }}" \
-            -w "HTTP %{http_code}, %{size_download}B (%{speed_download}B/s)\n"
+          URL="${{ inputs.apk-url }}"
+          echo "URL: $URL"
+          # URL-encode Chinese characters in the URL
+          URL_ENCODED=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$URL', safe=':/?=&%'))" 2>/dev/null || echo "$URL")
+          echo "Encoded: $URL_ENCODED"
+          curl -v -sL --max-time 600 -o /tmp/app.apk \
+            "$URL_ENCODED" \
+            -w "\nHTTP %{http_code}, %{size_download}B (%{speed_download}B/s)\n" 2>&1 | tail -10
           ls -lh /tmp/app.apk
-          file /tmp/app.apk
 
       - name: Create Release & Upload APK
         env:
@@ -48,12 +52,29 @@ jobs:
         run: |
           TAG="${{ inputs.app-name }}-modded-${{ inputs.version }}"
           echo "Creating release tag: $TAG"
-          # Try create first, if exists just upload
-          gh release create "$TAG" /tmp/app.apk \
+
+          # Verify APK exists
+          if [ ! -f /tmp/app.apk ]; then
+            echo "APK not found at /tmp/app.apk"
+            exit 1
+          fi
+          APK_SIZE=$(stat -c%s /tmp/app.apk)
+          if [ "$APK_SIZE" -lt 1000000 ]; then
+            echo "APK too small ($APK_SIZE bytes), download probably failed"
+            exit 1
+          fi
+          echo "APK size: $APK_SIZE bytes ($(( APK_SIZE / 1024 / 1024 )) MB)"
+
+          # Create release (may fail if tag exists, that's OK)
+          gh release create "$TAG" \
             -R ${{ github.repository }} \
             --title "${{ inputs.app-name }} modded ${{ inputs.version }}" \
-            --notes "鹿属修改版\nSource: ${{ inputs.apk-url }}" \
-            || gh release upload "$TAG" /tmp/app.apk -R ${{ github.repository }} --clobher
+            --notes "鹿属修改版" \
+            --generate-notes 2>/dev/null || echo "Release tag already exists, uploading assets..."
+
+          # Upload APK
+          gh release upload "$TAG" /tmp/app.apk -R ${{ github.repository }} --clobber
+
           echo "release_tag=$TAG" >> $GITHUB_OUTPUT
         id: release
 
