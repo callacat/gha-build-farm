@@ -420,7 +420,9 @@ jobs:
           ls -lh /tmp/${{ inputs.app_id }}-unsigned.apk
 
       - name: 🗜️ Recompress APK (reduce 60-100MB)
-        run: python3 .github/scripts/hg-shrink-apk.py /tmp/${{ inputs.app_id }}-unsigned.apk
+        run: |
+          sudo apt install -y advancecomp -qq 2>/dev/null
+          python3 .github/scripts/hg-shrink-apk.py /tmp/${{ inputs.app_id }}-unsigned.apk
 
       - name: Sign APK (v2/v3 zipalign + apksigner)
         run: |
