@@ -1,0 +1,106 @@
+name: Fanqie Oneshot — 清空 oneseeker.top + 重打包
+on:
+  workflow_dispatch:
+    inputs:
+      modded-tag:
+        description: 'Modded APK release tag (e.g. fq-modded-7.2.4.19)'
+        required: true
+        default: 'fq-modded-7.2.4.19'
+        type: string
+      output-tag:
+        description: 'Output release tag (e.g. fq-patched-7.2.4.19)'
+        required: true
+        default: 'fq-patched-7.2.4.19'
+        type: string
+
+jobs:
+  patch:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Download modded APK
+        run: |
+          gh release download "${{ inputs.modded-tag }}" \
+            -R ${{ github.repository }} -p 'app.apk' \
+            --dir /tmp
+          mv /tmp/app.apk /tmp/modded.apk
+          ls -lh /tmp/modded.apk
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Install apktool
+        run: |
+          curl -sL -o /tmp/apktool.jar \
+            https://github.com/iBotPeaches/Apktool/releases/download/v2.11.1/apktool_2.11.1.jar
+
+      - name: Unpack APK
+        run: |
+          java -jar /tmp/apktool.jar d -f /tmp/modded.apk -o /tmp/unpacked 2>&1 | tail -3
+
+      - name: Patch oneseeker.top → empty string
+        run: |
+          SMALI_FILE=$(grep -rl 'oneseeker.top' /tmp/unpacked/ 2>/dev/null | head -1)
+          if [ -z "$SMALI_FILE" ]; then
+            echo "oneseeker.top not found in smali!"
+            exit 1
+          fi
+          echo "Patching: $SMALI_FILE"
+          sed -i 's/const-string .*, "oneseeker.top"/const-string v1, ""  # empty: oneseeker blocked/' "$SMALI_FILE"
+          if grep 'oneseeker.top' "$SMALI_FILE"; then
+            echo "PATCH FAILED"
+            exit 1
+          fi
+          echo "✓ Patched"
+
+      - name: Repack APK
+        run: |
+          java -jar /tmp/apktool.jar b -c /tmp/unpacked -o /tmp/patched-unsigned.apk 2>&1 | tail -10
+          ls -lh /tmp/patched-unsigned.apk
+
+      - name: Sign APK
+        run: |
+          # Create debug keystore
+          keytool -genkey -v -keystore /tmp/debug.keystore \
+            -alias androiddebugkey -keypass android -storepass android \
+            -keyalg RSA -validity 365 -dname 'CN=Debug,O=Android,C=US'
+          # Sign
+          apksigner sign --ks /tmp/debug.keystore \
+            --ks-pass pass:android --ks-key-alias androiddebugkey \
+            --key-pass pass:android \
+            --out /tmp/patched-signed.apk /tmp/patched-unsigned.apk
+          ls -lh /tmp/patched-signed.apk
+
+      - name: Verify
+        run: |
+          apksigner verify --verbose /tmp/patched-signed.apk 2>&1 | head -10
+          unzip -l /tmp/patched-signed.apk 2>/dev/null | grep 'classes27.dex' | head -3
+          # Verify oneseeker is gone
+          strings /tmp/patched-signed.apk | grep -c 'oneseeker.top' || echo "✓ oneseeker.top removed from APK"
+
+      - name: Upload to Release
+        run: |
+          TAG="${{ inputs.output-tag }}"
+          gh release create "$TAG" /tmp/patched-signed.apk \
+            -R ${{ github.repository }} \
+            --title "Fanqie patched ${{ inputs.output-tag }}" \
+            --notes "Patch: cleared oneseeker.top in com/iD.smali" \
+            --generate-notes 2>/dev/null || \
+          gh release upload "$TAG" /tmp/patched-signed.apk \
+            -R ${{ github.repository }} --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Clean old runs
+        if: always()
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          retain_days: 0
+          keep_minimum_runs: 10
