@@ -91,22 +91,28 @@ jobs:
           echo "=== so count ==="
           unzip -l /tmp/app.apk 2>/dev/null | grep -c '\.so$' || echo "0"
 
-      - name: Decompile (jadx)
+      - name: Install jadx
         if: inputs.run-analysis == 'true'
         run: |
           curl -sL -o /tmp/jadx.zip \
             https://github.com/skylot/jadx/releases/download/v1.5.1/jadx-1.5.1.zip
           unzip -q /tmp/jadx.zip -d /opt/jadx
           echo "/opt/jadx/bin" >> $GITHUB_PATH
-          jadx --show-bad-code -d /tmp/jadx-output /tmp/app.apk 2>&1 | tail -5
+
+      - name: Decompile (jadx)
+        if: inputs.run-analysis == 'true'
+        run: |
+          /opt/jadx/bin/jadx --show-bad-code -d /tmp/jadx-output /tmp/app.apk 2>&1 | tail -10
           echo "jadx done. Output size:"
           du -sh /tmp/jadx-output/
 
-      - name: Unpack (apktool)
-        if: inputs.run-analysis == 'true'
+      - name: Install apktool
         run: |
           curl -sL -o /tmp/apktool.jar \
             https://github.com/iBotPeaches/Apktool/releases/download/v2.11.1/apktool_2.11.1.jar
+
+      - name: Unpack (apktool)
+        run: |
           java -jar /tmp/apktool.jar d -f /tmp/app.apk -o /tmp/apktool-output 2>&1 | tail -3
           echo "apktool done. Output size:"
           du -sh /tmp/apktool-output/
