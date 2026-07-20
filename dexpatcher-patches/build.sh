@@ -41,24 +41,7 @@ SMALI_OUT="$BUILD_DIR/apktool_out"
 FOUND=0
 for sm in $(find "$SMALI_OUT" -name "*BottomTabBarItemType*" 2>/dev/null); do
   if grep -q "findByValue" "$sm"; then
-    content=$(cat "$sm")
-    insert='    # filtered by hg-ad-removal
-    const/4 v0, 0x5
-    if-ne p0, v0, :check_lucky
-    const/4 v0, 0x0
-    return-object v0
-    :check_lucky
-    const/4 v0, 0x2
-    if-ne p0, v0, :original_switch
-    const/4 v0, 0x0
-    return-object v0
-    :original_switch'
-    new=$(echo "$content" | sed "s|.method public static findByValue(I)Lcom/dragon/read/rpc/model/BottomTabBarItemType;|.method public static findByValue(I)Lcom/dragon/read/rpc/model/BottomTabBarItemType;\n$insert|")
-    if [ "$new" != "$content" ]; then
-      echo "$new" > "$sm"
-      echo "    ✓ Patched $(basename $sm)"
-      FOUND=1
-    fi
+    python3 "$SCRIPT_DIR/patch-smali-findbyvalue.py" "$sm" && FOUND=1
   fi
 done
 [ $FOUND -eq 0 ] && echo "  ⚠ findByValue smali not found"
