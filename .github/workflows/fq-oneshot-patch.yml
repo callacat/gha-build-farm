@@ -3,12 +3,12 @@ on:
   workflow_dispatch:
     inputs:
       modded-tag:
-        description: 'Modded APK release tag (e.g. fq-modded-7.2.4.19)'
+        description: 'Modded APK release tag'
         required: true
         default: 'fq-modded-7.2.4.19'
         type: string
       output-tag:
-        description: 'Output release tag (e.g. fq-patched-7.2.4.19)'
+        description: 'Output release tag'
         required: true
         default: 'fq-patched-7.2.4.19'
         type: string
@@ -16,15 +16,11 @@ on:
 jobs:
   patch:
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
 
       - name: Download modded APK
         run: |
@@ -36,54 +32,160 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-      - name: Install apktool
+      - name: Binary-patch oneseeker.top in DEX + re-zip + sign
         run: |
-          curl -sL -o /tmp/apktool.jar \
-            https://github.com/iBotPeaches/Apktool/releases/download/v2.11.1/apktool_2.11.1.jar
+          python3 << 'PYEOF'
+          import struct, zlib, os, subprocess
 
-      - name: Unpack APK
-        run: |
-          java -jar /tmp/apktool.jar d -f /tmp/modded.apk -o /tmp/unpacked 2>&1 | tail -3
+          apk = '/tmp/modded.apk'
+          signed_apk = '/tmp/patched-signed.apk'
 
-      - name: Patch oneseeker.top → empty string
-        run: |
-          SMALI_FILE=$(grep -rl 'oneseeker.top' /tmp/unpacked/ 2>/dev/null | head -1)
-          if [ -z "$SMALI_FILE" ]; then
-            echo "oneseeker.top not found in smali!"
-            exit 1
-          fi
-          echo "Patching: $SMALI_FILE"
-          sed -i 's/const-string .*, "oneseeker.top"/const-string v1, ""  # empty: oneseeker blocked/' "$SMALI_FILE"
-          if grep 'oneseeker.top' "$SMALI_FILE"; then
-            echo "PATCH FAILED"
-            exit 1
-          fi
-          echo "✓ Patched"
+          # ----- Read & parse APK -----
+          with open(apk, 'rb') as f:
+              data = bytearray(f.read())
 
-      - name: Repack APK
-        run: |
-          java -jar /tmp/apktool.jar b -c /tmp/unpacked -o /tmp/patched-unsigned.apk 2>&1 | tail -10
-          ls -lh /tmp/patched-unsigned.apk
+          # Find EOCD
+          eocd = len(data) - 22
+          while eocd > 0 and data[eocd:eocd+4] != b'PK\x05\x06':
+              eocd -= 1
+          assert eocd > 0, "EOCD not found"
 
-      - name: Sign APK
+          coff = struct.unpack_from('<I', data, eocd+16)[0]
+          csz = struct.unpack_from('<I', data, eocd+12)[0]
+
+          # Find central dir entry for classes27.dex
+          nlen = 0; elen = 0; clen = 0
+          pos = coff
+          while pos < coff + csz:
+              sig = struct.unpack_from('<I', data, pos)[0]
+              assert sig == 0x02014b50, f"Bad central sig at {pos}"
+              nlen = struct.unpack_from('<H', data, pos+28)[0]
+              elen = struct.unpack_from('<H', data, pos+30)[0]
+              clen = struct.unpack_from('<H', data, pos+32)[0]
+              name = data[pos+46:pos+46+nlen].decode()
+              if name == 'classes27.dex':
+                  lhoff = struct.unpack_from('<I', data, pos+42)[0]
+                  old_crc = struct.unpack_from('<I', data, pos+16)[0]
+                  old_csize = struct.unpack_from('<I', data, pos+20)[0]
+                  old_usize = struct.unpack_from('<I', data, pos+24)[0]
+                  break
+              pos += 46 + nlen + elen + clen
+          else:
+              raise Exception("classes27.dex not found")
+
+          # Local header -> data offset
+          lh_nlen = struct.unpack_from('<H', data, lhoff+26)[0]
+          lh_elen = struct.unpack_from('<H', data, lhoff+28)[0]
+          method = struct.unpack_from('<H', data, lhoff+8)[0]
+          doff = lhoff + 30 + lh_nlen + lh_elen
+          assert method == 8, f"Expected deflated, got method={method}"
+
+          # Decompress, patch, recompress
+          raw = zlib.decompress(data[doff:doff+old_csize], -zlib.MAX_WBITS)
+          assert len(raw) == old_usize
+
+          idx = raw.find(b'oneseeker.top')
+          assert idx != -1, "oneseeker.top not found in DEX"
+
+          # Change uleb128 length from 13 to 0
+          assert raw[idx-1] == 13, f"Expected length byte 13 before oneseeker, got {raw[idx-1]}"
+          raw[idx-1] = 0
+
+          new_comp = zlib.compress(raw)[2:-4]
+          new_crc = zlib.crc32(raw) & 0xffffffff
+          diff = len(new_comp) - old_csize
+          print(f"Patched: old_csize={old_csize} -> new={len(new_comp)} (diff={diff:+d})")
+
+          # ----- In-place replace compressed data -----
+          if diff != 0:
+              tail = data[doff+old_csize:]
+              new_data = bytearray(len(data) + diff)
+              new_data[:doff] = data[:doff]
+              new_data[doff:doff+len(new_comp)] = new_comp
+              new_data[doff+len(new_comp):] = tail
+              data = new_data
+          else:
+              data[doff:doff+len(new_comp)] = new_comp
+
+          # ----- Update local header -----
+          struct.pack_into('<I', data, lhoff+14, new_crc)
+          struct.pack_into('<I', data, lhoff+18, len(new_comp))
+
+          # ----- Update central dir entry -----
+          struct.pack_into('<I', data, pos+16, new_crc)
+          struct.pack_into('<I', data, pos+20, len(new_comp))
+
+          # ----- Update EOCD central dir offset (shifted by diff) -----
+          new_eocd = len(data) - 22
+          while new_eocd > 0 and data[new_eocd:new_eocd+4] != b'PK\x05\x06':
+              new_eocd -= 1
+
+          # Find central dir start in modified data
+          for ci in range(coff+diff-200, coff+diff+200):
+              if ci < 0 or ci >= len(data)-4: continue
+              if data[ci:ci+4] == b'PK\x01\x02':
+                  test_lh = struct.unpack_from('<I', data, ci+42)[0]
+                  if 0 < test_lh < doff:
+                      struct.pack_into('<I', data, new_eocd+16, ci)
+                      struct.pack_into('<I', data, new_eocd+12, new_eocd-ci)
+                      print(f"Central dir found at {ci}, size {new_eocd-ci}")
+                      break
+
+          unsigned_apk = '/tmp/patched-unsigned.apk'
+          with open(unsigned_apk, 'wb') as f:
+              f.write(data)
+          print(f"✓ Written: {os.path.getsize(unsigned_apk)/1024/1024:.1f} MB")
+
+          # ----- Remove META-INF signatures from central dir -----
+          # Use zip command (available on Ubuntu runner)
+          import subprocess
+          subprocess.run(['zip', '-d', unsigned_apk,
+              'META-INF/MANIFEST.MF', 'META-INF/BYTESIGN.SF', 'META-INF/BYTESIGN.RSA',
+              'META-INF/CERT.SF', 'META-INF/CERT.RSA'],
+              capture_output=True)
+          print("Removed META-INF signature files")
+
+          PYEOF
+
+      - name: Sign with jarsigner
         run: |
           # Create debug keystore
           keytool -genkey -v -keystore /tmp/debug.keystore \
             -alias androiddebugkey -keypass android -storepass android \
             -keyalg RSA -validity 365 -dname 'CN=Debug,O=Android,C=US'
+
+          # Align
+          if which zipalign 2>/dev/null; then
+            zipalign -f 4 /tmp/patched-unsigned.apk /tmp/patched-aligned.apk
+            mv /tmp/patched-aligned.apk /tmp/patched-unsigned.apk
+          fi
+
           # Sign
-          apksigner sign --ks /tmp/debug.keystore \
-            --ks-pass pass:android --ks-key-alias androiddebugkey \
-            --key-pass pass:android \
-            --out /tmp/patched-signed.apk /tmp/patched-unsigned.apk
+          jarsigner -keystore /tmp/debug.keystore \
+            -storepass android -keypass android \
+            -sigalg SHA1withRSA -digestalg SHA1 \
+            /tmp/patched-unsigned.apk androiddebugkey 2>&1
+
+          cp /tmp/patched-unsigned.apk /tmp/patched-signed.apk
           ls -lh /tmp/patched-signed.apk
 
       - name: Verify
         run: |
-          apksigner verify --verbose /tmp/patched-signed.apk 2>&1 | head -10
-          unzip -l /tmp/patched-signed.apk 2>/dev/null | grep 'classes27.dex' | head -3
-          # Verify oneseeker is gone
-          strings /tmp/patched-signed.apk | grep -c 'oneseeker.top' || echo "✓ oneseeker.top removed from APK"
+          echo "=== Signature ==="
+          jarsigner -verify -certs /tmp/patched-signed.apk 2>&1 | head -5
+          echo ""
+          echo "=== classes27.dex ==="
+          unzip -l /tmp/patched-signed.apk 2>/dev/null | grep classes27.dex
+          echo ""
+          echo "=== oneseeker check ==="
+          if strings /tmp/patched-signed.apk | grep -q 'oneseeker.top'; then
+            echo "oneseeker.top FOUND! PATCH FAILED"
+            exit 1
+          fi
+          echo "✓ oneseeker.top removed from APK strings"
+          echo ""
+          echo "=== APK size ==="
+          ls -lh /tmp/patched-signed.apk
 
       - name: Upload to Release
         run: |
