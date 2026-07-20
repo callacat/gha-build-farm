@@ -81,7 +81,7 @@ jobs:
           assert method == 8, f"Expected deflated, got method={method}"
 
           # Decompress, patch, recompress
-          raw = zlib.decompress(data[doff:doff+old_csize], -zlib.MAX_WBITS)
+          raw = bytearray(zlib.decompress(data[doff:doff+old_csize], -zlib.MAX_WBITS))
           assert len(raw) == old_usize
 
           idx = raw.find(b'oneseeker.top')
