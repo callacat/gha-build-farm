@@ -413,14 +413,14 @@ jobs:
       - name: Search update UI and network triggers
         run: timeout 120 bash .github/scripts/hg-search-update-ui.sh /tmp/apktool_out || true
 
-      - name: 🗜️ Shrink APK (remove unused 125MB Pangle plugin)
-        run: python3 .github/scripts/hg-shrink-apk.py /tmp/apktool_out
-
       - name: Rebuild APK
         run: |
           python3 .github/scripts/fix-public-xml.py
           /opt/apktool b /tmp/apktool_out -o /tmp/${{ inputs.app_id }}-unsigned.apk 2>&1
           ls -lh /tmp/${{ inputs.app_id }}-unsigned.apk
+
+      - name: 🗜️ Recompress APK (reduce 60-100MB)
+        run: python3 .github/scripts/hg-shrink-apk.py /tmp/${{ inputs.app_id }}-unsigned.apk
 
       - name: Sign APK (v2/v3 zipalign + apksigner)
         run: |
