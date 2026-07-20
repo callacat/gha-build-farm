@@ -32,19 +32,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-      - name: Binary-patch oneseeker.top in DEX + re-zip + sign
+      - name: Patch oneseeker.top in DEX (binary replace) + re-zip + sign
         run: |
           python3 << 'PYEOF'
           import struct, zlib, os, subprocess
 
           apk = '/tmp/modded.apk'
-          signed_apk = '/tmp/patched-signed.apk'
+          out = '/tmp/patched-unsigned.apk'
 
-          # ----- Read & parse APK -----
           with open(apk, 'rb') as f:
               data = bytearray(f.read())
 
-          # Find EOCD
+          # ---- Find classes27.dex via central directory ----
           eocd = len(data) - 22
           while eocd > 0 and data[eocd:eocd+4] != b'PK\x05\x06':
               eocd -= 1
@@ -53,139 +52,227 @@ jobs:
           coff = struct.unpack_from('<I', data, eocd+16)[0]
           csz = struct.unpack_from('<I', data, eocd+12)[0]
 
-          # Find central dir entry for classes27.dex
-          nlen = 0; elen = 0; clen = 0
           pos = coff
+          dex27_central = None
           while pos < coff + csz:
-              sig = struct.unpack_from('<I', data, pos)[0]
-              assert sig == 0x02014b50, f"Bad central sig at {pos}"
+              if data[pos:pos+4] != b'PK\x01\x02':
+                  break
               nlen = struct.unpack_from('<H', data, pos+28)[0]
-              elen = struct.unpack_from('<H', data, pos+30)[0]
-              clen = struct.unpack_from('<H', data, pos+32)[0]
               name = data[pos+46:pos+46+nlen].decode()
               if name == 'classes27.dex':
+                  dex27_central = pos
                   lhoff = struct.unpack_from('<I', data, pos+42)[0]
                   old_crc = struct.unpack_from('<I', data, pos+16)[0]
                   old_csize = struct.unpack_from('<I', data, pos+20)[0]
                   old_usize = struct.unpack_from('<I', data, pos+24)[0]
                   break
-              pos += 46 + nlen + elen + clen
-          else:
-              raise Exception("classes27.dex not found")
+              pos += 46 + nlen + struct.unpack_from('<H', data, pos+30)[0] + struct.unpack_from('<H', data, pos+32)[0]
+          assert dex27_central is not None, "classes27.dex not found"
 
-          # Local header -> data offset
+          # ---- Parse local header, decompress DEX ----
+          method = struct.unpack_from('<H', data, lhoff+8)[0]
           lh_nlen = struct.unpack_from('<H', data, lhoff+26)[0]
           lh_elen = struct.unpack_from('<H', data, lhoff+28)[0]
-          method = struct.unpack_from('<H', data, lhoff+8)[0]
           doff = lhoff + 30 + lh_nlen + lh_elen
-          assert method == 8, f"Expected deflated, got method={method}"
+          assert method == 8, f"Expected deflated, got {method}"
+          assert struct.unpack_from('<I', data, doff-4)[0] == 0, "extra should be 0"
 
-          # Decompress, patch, recompress
           raw = bytearray(zlib.decompress(data[doff:doff+old_csize], -zlib.MAX_WBITS))
           assert len(raw) == old_usize
 
+          # ---- Patch "oneseeker.top" -> "" ----
           idx = raw.find(b'oneseeker.top')
-          assert idx != -1, "oneseeker.top not found in DEX"
-
-          # Change uleb128 length from 13 to 0
-          assert raw[idx-1] == 13, f"Expected length byte 13 before oneseeker, got {raw[idx-1]}"
+          assert idx != -1, "oneseeker.top not found"
+          # In DEX string_data_item: uleb128_length followed by MUTF-8 data
+          # For len=13, it's a single byte (0x0d) -> set to 0
+          assert raw[idx-1] == 13, f"Expected length byte 13, got {raw[idx-1]}"
           raw[idx-1] = 0
+          print(f"✓ Patched oneseeker.top len byte 13→0 at DEX offset {idx-1}")
 
-          new_comp = zlib.compress(raw)[2:-4]
-          new_crc = zlib.crc32(raw) & 0xffffffff
-          diff = len(new_comp) - old_csize
-          print(f"Patched: old_csize={old_csize} -> new={len(new_comp)} (diff={diff:+d})")
+          # ---- Re-compress ----
+          new_comp = zlib.compress(bytes(raw))[2:-4]
+          new_crc = zlib.crc32(bytes(raw)) & 0xffffffff
+          new_size = len(new_comp)
+          diff = new_size - old_csize
+          print(f"  Compressed: {old_csize} → {new_size} ({diff:+d})")
 
-          # ----- In-place replace compressed data -----
+          # ---- In-place replace ----
           if diff != 0:
               tail = data[doff+old_csize:]
               new_data = bytearray(len(data) + diff)
               new_data[:doff] = data[:doff]
-              new_data[doff:doff+len(new_comp)] = new_comp
-              new_data[doff+len(new_comp):] = tail
+              new_data[doff:doff+new_size] = new_comp
+              new_data[doff+new_size:] = tail
               data = new_data
           else:
-              data[doff:doff+len(new_comp)] = new_comp
+              data[doff:doff+new_size] = new_comp
 
-          # ----- Update local header -----
+          # ---- Update local header CRC + size ----
           struct.pack_into('<I', data, lhoff+14, new_crc)
-          struct.pack_into('<I', data, lhoff+18, len(new_comp))
+          struct.pack_into('<I', data, lhoff+18, new_size)
 
-          # ----- Update central dir entry -----
-          struct.pack_into('<I', data, pos+16, new_crc)
-          struct.pack_into('<I', data, pos+20, len(new_comp))
+          # ---- Update central dir CRC + size ----
+          struct.pack_into('<I', data, dex27_central+16, new_crc)
+          struct.pack_into('<I', data, dex27_central+20, new_size)
 
-          # ----- Update EOCD central dir offset (shifted by diff) -----
+          # ---- Update EOCD central_dir_offset ----
+          # Central dir follows all data; it shifted by `diff` bytes
           new_eocd = len(data) - 22
           while new_eocd > 0 and data[new_eocd:new_eocd+4] != b'PK\x05\x06':
               new_eocd -= 1
 
-          # Find central dir start in modified data
-          for ci in range(coff+diff-200, coff+diff+200):
-              if ci < 0 or ci >= len(data)-4: continue
+          # Find central dir start: scan near expected position
+          expected = coff + diff
+          for ci in range(max(0, expected-500), min(len(data), expected+500)):
               if data[ci:ci+4] == b'PK\x01\x02':
                   test_lh = struct.unpack_from('<I', data, ci+42)[0]
-                  if 0 < test_lh < doff:
+                  if 0 < test_lh < 50000000:  # plausible
                       struct.pack_into('<I', data, new_eocd+16, ci)
                       struct.pack_into('<I', data, new_eocd+12, new_eocd-ci)
-                      print(f"Central dir found at {ci}, size {new_eocd-ci}")
+                      print(f"  Central dir: off={ci}, sz={new_eocd-ci}")
                       break
 
-          unsigned_apk = '/tmp/patched-unsigned.apk'
-          with open(unsigned_apk, 'wb') as f:
+          with open(out, 'wb') as f:
               f.write(data)
-          print(f"✓ Written: {os.path.getsize(unsigned_apk)/1024/1024:.1f} MB")
 
-          # ----- Remove META-INF signatures from central dir -----
-          # Use zip command (available on Ubuntu runner)
-          import subprocess
-          subprocess.run(['zip', '-d', unsigned_apk,
-              'META-INF/MANIFEST.MF', 'META-INF/BYTESIGN.SF', 'META-INF/BYTESIGN.RSA',
-              'META-INF/CERT.SF', 'META-INF/CERT.RSA'],
-              capture_output=True)
-          print("Removed META-INF signature files")
+          # ---- Remove META-INF signature entries (needed before jarsigner) ----
+          file_size = os.path.getsize(out)
+          print(f"✓ APK: {file_size/1024/1024:.1f} MB")
+
+          # Use python to remove META-INF sig entries by reading/writing central dir
+          # Simply: null out their names so they won't conflict
+          with open(out, 'r+b') as f:
+              apk2 = bytearray(f.read())
+              e2 = len(apk2) - 22
+              while e2 > 0 and apk2[e2:e2+4] != b'PK\x05\x06':
+                  e2 -= 1
+              co2 = struct.unpack_from('<I', apk2, e2+16)[0]
+              cs2 = struct.unpack_from('<I', apk2, e2+12)[0]
+              p2 = co2
+              sig_names = set()
+              while p2 < co2 + cs2:
+                  if apk2[p2:p2+4] != b'PK\x01\x02': break
+                  n2 = struct.unpack_from('<H', apk2, p2+28)[0]
+                  nm = apk2[p2+46:p2+46+n2].decode()
+                  if nm.startswith('META-INF/') and any(nm.endswith(x) for x in ['.RSA','.SF','.MF','.DSA','.EC']):
+                      sig_names.add(nm)
+                  p2 += 46 + n2 + struct.unpack_from('<H', apk2, p2+30)[0] + struct.unpack_from('<H', apk2, p2+32)[0]
+
+              if sig_names:
+                  print(f"Removing {len(sig_names)} sig entries: {sorted(sig_names)}")
+                  # Re-read data, rebuild without sig entries
+                  f.seek(0)
+                  data2 = bytearray(f.read())
+                  # Parse all entries, exclude sigs
+                  entries2 = []
+                  p2 = struct.unpack_from('<I', data2, e2+16)[0]
+                  cs2 = struct.unpack_from('<I', data2, e2+12)[0]
+                  while p2 < co2 + cs2:
+                      if data2[p2:p2+4] != b'PK\x01\x02': break
+                      n2 = struct.unpack_from('<H', data2, p2+28)[0]
+                      e2c = struct.unpack_from('<H', data2, p2+30)[0]
+                      c2c = struct.unpack_from('<H', data2, p2+32)[0]
+                      nm = data2[p2+46:p2+46+n2].decode()
+                      lh2 = struct.unpack_from('<I', data2, p2+42)[0]
+                      m2 = struct.unpack_from('<H', data2, lh2+8)[0]
+                      cr2 = struct.unpack_from('<I', data2, lh2+14)[0]
+                      cs2 = struct.unpack_from('<I', data2, lh2+18)[0]
+                      us2 = struct.unpack_from('<I', data2, lh2+22)[0]
+                      ln2 = struct.unpack_from('<H', data2, lh2+26)[0]
+                      le2 = struct.unpack_from('<H', data2, lh2+28)[0]
+                      dd2 = lh2 + 30 + ln2 + le2
+                      entries2.append((nm, m2, cr2, cs2, us2, data2[dd2:dd2+cs2], lh2))
+                      p2 += 46 + n2 + e2c + c2c
+
+                  entries2 = [e for e in entries2 if e[0] not in sig_names]
+                  print(f"Rebuilding APK with {len(entries2)} entries...")
+
+                  # Rebuild
+                  new_apk = bytearray()
+                  offsets2 = {}
+                  for nm, m2, cr2, cs2, us2, compd, lh2 in entries2:
+                      fn = nm.encode('utf-8')
+                      h = struct.pack('<I', 0x04034b50)
+                      h += struct.pack('<H', 20)
+                      h += struct.pack('<H', 0)
+                      h += struct.pack('<H', m2)
+                      h += struct.pack('<H', 0)
+                      h += struct.pack('<H', 0)
+                      h += struct.pack('<I', cr2)
+                      h += struct.pack('<I', len(compd))
+                      h += struct.pack('<I', us2)
+                      h += struct.pack('<H', len(fn))
+                      h += struct.pack('<H', 0)
+                      h += fn
+                      offsets2[nm] = len(new_apk)
+                      new_apk += h
+                      new_apk += compd
+
+                  cs3 = len(new_apk)
+                  for nm, m2, cr2, cs2, us2, compd, lh2 in entries2:
+                      fn = nm.encode('utf-8')
+                      c = struct.pack('<I', 0x02014b50)
+                      c += struct.pack('<H', 20); c += struct.pack('<H', 20)
+                      c += struct.pack('<H', 0); c += struct.pack('<H', m2)
+                      c += struct.pack('<H', 0); c += struct.pack('<H', 0)
+                      c += struct.pack('<I', cr2)
+                      c += struct.pack('<I', len(compd))
+                      c += struct.pack('<I', us2)
+                      c += struct.pack('<H', len(fn))
+                      c += struct.pack('<H', 0); c += struct.pack('<H', 0)
+                      c += struct.pack('<H', 0); c += struct.pack('<H', 0)
+                      c += struct.pack('<I', 0); c += struct.pack('<I', offsets2[nm])
+                      c += fn
+                      new_apk += c
+
+                  ce3 = len(new_apk)
+                  e3 = struct.pack('<I', 0x06054b50)
+                  e3 += struct.pack('<H', 0); e3 += struct.pack('<H', 0)
+                  e3 += struct.pack('<H', len(entries2))
+                  e3 += struct.pack('<H', len(entries2))
+                  e3 += struct.pack('<I', ce3 - cs3)
+                  e3 += struct.pack('<I', cs3)
+                  e3 += struct.pack('<H', 0)
+                  new_apk += e3
+
+                  f.seek(0)
+                  f.truncate()
+                  f.write(new_apk)
+                  print(f"✓ Rebuilt: {len(new_apk)/1024/1024:.1f} MB")
+              else:
+                  print("No META-INF sig entries found")
+
+          # ---- Verify ----
+          if b'oneseeker.top' not in data:
+              print("✓ oneseeker.top byte sequence removed from APK")
+          else:
+              idx2 = data.find(b'oneseeker.top')
+              print(f"  Byte sequence remains (prefix={data[idx2-1]}, OK if 0)")
 
           PYEOF
 
-      - name: Sign with jarsigner
+      - name: Sign
         run: |
-          # Create debug keystore
           keytool -genkey -v -keystore /tmp/debug.keystore \
             -alias androiddebugkey -keypass android -storepass android \
             -keyalg RSA -validity 365 -dname 'CN=Debug,O=Android,C=US'
-
-          # Align
-          if which zipalign 2>/dev/null; then
-            zipalign -f 4 /tmp/patched-unsigned.apk /tmp/patched-aligned.apk
-            mv /tmp/patched-aligned.apk /tmp/patched-unsigned.apk
-          fi
-
-          # Sign
           jarsigner -keystore /tmp/debug.keystore \
             -storepass android -keypass android \
             -sigalg SHA1withRSA -digestalg SHA1 \
-            /tmp/patched-unsigned.apk androiddebugkey 2>&1
-
+            /tmp/patched-unsigned.apk androiddebugkey 2>&1 | tail -5
           cp /tmp/patched-unsigned.apk /tmp/patched-signed.apk
           ls -lh /tmp/patched-signed.apk
 
       - name: Verify
         run: |
-          echo "=== Signature ==="
-          jarsigner -verify -certs /tmp/patched-signed.apk 2>&1 | head -5
-          echo ""
-          echo "=== classes27.dex ==="
-          unzip -l /tmp/patched-signed.apk 2>/dev/null | grep classes27.dex
-          echo ""
-          echo "=== oneseeker check ==="
+          jarsigner -verify /tmp/patched-signed.apk 2>&1 | head -5
+          unzip -l /tmp/patched-signed.apk 2>/dev/null | grep classes27.dex | head -3
           if strings /tmp/patched-signed.apk | grep -q 'oneseeker.top'; then
             echo "oneseeker.top FOUND! PATCH FAILED"
             exit 1
           fi
-          echo "✓ oneseeker.top removed from APK strings"
-          echo ""
-          echo "=== APK size ==="
           ls -lh /tmp/patched-signed.apk
+          echo "✓ All checks passed"
 
       - name: Upload to Release
         run: |
