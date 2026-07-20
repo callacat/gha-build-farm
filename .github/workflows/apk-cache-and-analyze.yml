@@ -1,0 +1,117 @@
+name: Fanqie Modded APK — 下载缓存 + 分析
+on:
+  workflow_dispatch:
+    inputs:
+      apk-url:
+        description: 'Modded APK download URL'
+        required: true
+        type: string
+      version:
+        description: 'APK version (e.g. 7.2.4.19)'
+        required: true
+        type: string
+      app-name:
+        description: 'App prefix for tag (fq/hg)'
+        required: false
+        default: 'fq'
+        type: string
+      run-analysis:
+        description: 'Run jadx/apktool analysis? (true/false)'
+        required: false
+        default: 'true'
+        type: string
+
+jobs:
+  cache-and-analyze:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Download APK
+        run: |
+          curl -sL --max-time 600 -o /tmp/app.apk \
+            "${{ inputs.apk-url }}" \
+            -w "HTTP %{http_code}, %{size_download}B (%{speed_download}B/s)\n"
+          ls -lh /tmp/app.apk
+          file /tmp/app.apk
+
+      - name: Create Release & Upload APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ inputs.app-name }}-modded-${{ inputs.version }}"
+          echo "Creating release tag: $TAG"
+          # Try create first, if exists just upload
+          gh release create "$TAG" /tmp/app.apk \
+            -R ${{ github.repository }} \
+            --title "${{ inputs.app-name }} modded ${{ inputs.version }}" \
+            --notes "鹿属修改版\nSource: ${{ inputs.apk-url }}" \
+            || gh release upload "$TAG" /tmp/app.apk -R ${{ github.repository }} --clobher
+          echo "release_tag=$TAG" >> $GITHUB_OUTPUT
+        id: release
+
+      - name: Quick strings scan
+        run: |
+          echo "=== 黑产域名 ==="
+          strings /tmp/app.apk | grep -oiE 'oneseeker|changzhi|dsdog|remote\.|appUpdate|force_upgrade|upsdk' | sort -u || echo "(none)"
+          echo "=== update/check ==="
+          strings /tmp/app.apk | grep -oiE 'checkUpdate|socket|http[s]?://' | sort -u | head -30 || echo "(none)"
+          echo "=== lib/arch ==="
+          unzip -l /tmp/app.apk 2>/dev/null | grep 'lib/' | awk '{print $4}' | sort -u | head -20
+          echo "=== DEX count ==="
+          unzip -l /tmp/app.apk 2>/dev/null | grep -c 'classes.*\.dex' || echo "0"
+          echo "=== so count ==="
+          unzip -l /tmp/app.apk 2>/dev/null | grep -c '\.so$' || echo "0"
+
+      - name: Decompile (jadx)
+        if: inputs.run-analysis == 'true'
+        run: |
+          curl -sL -o /tmp/jadx.zip \
+            https://github.com/skylot/jadx/releases/download/v1.5.1/jadx-1.5.1.zip
+          unzip -q /tmp/jadx.zip -d /opt/jadx
+          echo "/opt/jadx/bin" >> $GITHUB_PATH
+          jadx --show-bad-code -d /tmp/jadx-output /tmp/app.apk 2>&1 | tail -5
+          echo "jadx done. Output size:"
+          du -sh /tmp/jadx-output/
+
+      - name: Unpack (apktool)
+        if: inputs.run-analysis == 'true'
+        run: |
+          curl -sL -o /tmp/apktool.jar \
+            https://github.com/iBotPeaches/Apktool/releases/download/v2.11.1/apktool_2.11.1.jar
+          java -jar /tmp/apktool.jar d -f /tmp/app.apk -o /tmp/apktool-output 2>&1 | tail -3
+          echo "apktool done. Output size:"
+          du -sh /tmp/apktool-output/
+
+      - name: Search domain in smali
+        if: inputs.run-analysis == 'true'
+        run: |
+          echo "=== Searching oneseeker/changzhi in smali ==="
+          grep -rnE 'oneseeker|changzhi|remote\.oneseeker' /tmp/apktool-output/ 2>/dev/null | head -20
+          echo "=== Searching Socket in smali ==="
+          grep -rnE 'Socket|InetSocketAddress|connect.*10008' /tmp/apktool-output/ 2>/dev/null | head -20
+          echo "=== Searching AlertDialog ==="
+          grep -rnE 'AlertDialog|DialogInterface' /tmp/apktool-output/ 2>/dev/null | grep -v '\.progress' | head -20
+
+      - name: Upload analysis artifacts
+        if: inputs.run-analysis == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.app-name }}-modded-${{ inputs.version }}-analysis
+          path: |
+            /tmp/jadx-output
+          retention-days: 14
+
+      - name: Clean old runs
+        if: always()
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          retain_days: 0
+          keep_minimum_runs: 10
