@@ -419,12 +419,18 @@ jobs:
           /opt/apktool b /tmp/apktool_out -o /tmp/${{ inputs.app_id }}-unsigned.apk 2>&1
           ls -lh /tmp/${{ inputs.app_id }}-unsigned.apk
 
-      - name: Sign APK (v2/v3 zipalign Zopfli + apksigner)
+      - name: 🗜️ Recompress APK (reduce 60-100MB)
+        run: |
+          sudo apt-get install -y advancecomp -qq 2>/dev/null
+          python3 .github/scripts/hg-shrink-apk.py /tmp/${{ inputs.app_id }}-unsigned.apk
+
+      - name: Sign APK (v2/v3 zipalign + apksigner)
         run: |
           SDK=/usr/local/lib/android/sdk; [ -d "$SDK" ] || SDK=$ANDROID_HOME
           BT=$(find "$SDK/build-tools" -maxdepth 1 -type d | sort -Vr | head -1)
 
-          $BT/zipalign -z 4 /tmp/${{ inputs.app_id }}-unsigned.apk /tmp/${{ inputs.app_id }}-aligned.apk 2>&1 | tail -2
+          zip -d /tmp/${{ inputs.app_id }}-unsigned.apk 'META-INF/*.SF' 'META-INF/*.RSA' 'META-INF/*.DSA' 'META-INF/MANIFEST.MF' 2>/dev/null || true
+          $BT/zipalign -v -p 4 /tmp/${{ inputs.app_id }}-unsigned.apk /tmp/${{ inputs.app_id }}-aligned.apk 2>&1 | tail -2
           $BT/apksigner sign --ks /tmp/debug.keystore --ks-pass pass:android \
             --ks-key-alias androiddebugkey \
             --v2-signing-enabled true --v3-signing-enabled true \
