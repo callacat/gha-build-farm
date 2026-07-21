@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """APK 减容 — advzip 逐条重压缩 ZIP 条目。
 在 rebuild 后、zipalign 前运行，不破坏 ZIP 结构。
+使用 -4 级压缩 + 3000 次迭代以获得最佳压比。
 """
 import sys, subprocess, shutil
 from pathlib import Path
@@ -15,7 +16,8 @@ tmp = APK.with_suffix('.tmp.apk')
 
 try:
     shutil.copy2(APK, tmp)
-    r = subprocess.run(['advzip', '-z', '-4', str(tmp)], capture_output=True, timeout=600)
+    # -4 = max compression, -i 3000 = iterative refinement for smaller output
+    r = subprocess.run(['advzip', '-z', '-4', '-i', '3000', str(tmp)], capture_output=True, timeout=1800)
     after = tmp.stat().st_size
     if after < before:
         shutil.move(tmp, APK)
