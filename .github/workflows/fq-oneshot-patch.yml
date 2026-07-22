@@ -92,6 +92,8 @@ jobs:
 
           # ---- Rebuild ZIP entries raw ----
           SIG_ENDS = ('.RSA', '.SF', '.MF', '.DSA', '.EC')
+          # resources.arsc must be STORED (uncompressed) for Android R+
+          STORED_NAMES = ('resources.arsc', 'AndroidManifest.xml')
           new_central = bytearray()
           new_data_block = bytearray()
           new_count = 0
@@ -113,6 +115,12 @@ jobs:
                   usize = new_usize
                   csize = new_csize
                   ctype = 8
+              elif fn in STORED_NAMES:
+                  # Must be STORED (uncompressed) and 4-byte aligned
+                  ctype = 0
+                  csize = usize
+                  # Ensure original was already STORED
+                  assert e['ctype'] == 0, f"{fn} was compressed, cannot realign"
               else:
                   crc = e['crc']
                   usize = e['usize']
