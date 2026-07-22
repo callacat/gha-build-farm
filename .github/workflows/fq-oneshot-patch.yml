@@ -116,11 +116,17 @@ jobs:
                   csize = new_csize
                   ctype = 8
               elif fn in STORED_NAMES:
-                  # Must be STORED (uncompressed) and 4-byte aligned
-                  ctype = 0
-                  csize = e['usize']
-                  # Ensure original was already STORED
-                  assert e['ctype'] == 0, f"{fn} was compressed, cannot realign"
+                  # Must be STORED (uncompressed) and 4-byte aligned for Android R+
+                  # If originally compressed, decompress first
+                  if e['ctype'] == 0:
+                      ctype = 0
+                      csize = e['usize']
+                  else:
+                      # Decompress to STORED
+                      ctype = 0
+                      compressed = zlib.decompress(compressed, -zlib.MAX_WBITS)
+                      assert len(compressed) == e['usize']
+                      csize = e['usize']
               else:
                   crc = e['crc']
                   usize = e['usize']
