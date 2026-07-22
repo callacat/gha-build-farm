@@ -188,7 +188,21 @@ jobs:
 
       - name: Zipalign (4-byte align for resources.arsc on Android R+)
         run: |
-          zipalign -v -p 4 /tmp/patched-unsigned.apk /tmp/patched-aligned.apk
+          # Find zipalign in Android SDK build-tools
+          ZIPALIGN=$(find /usr/local/lib/android/sdk/build-tools -name zipalign 2>/dev/null | head -1)
+          if [ -z "$ZIPALIGN" ]; then
+            ZIPALIGN=$(find /opt/android/sdk/build-tools -name zipalign 2>/dev/null | head -1)
+          fi
+          if [ -z "$ZIPALIGN" ]; then
+            ZIPALIGN=$(find /android/sdk/build-tools -name zipalign 2>/dev/null | head -1)
+          fi
+          if [ -z "$ZIPALIGN" ]; then
+            echo "zipalign not found in standard locations, checking PATH..."
+            which zipalign
+            ZIPALIGN=zipalign
+          fi
+          echo "Using zipalign: $ZIPALIGN"
+          "$ZIPALIGN" -v -p 4 /tmp/patched-unsigned.apk /tmp/patched-aligned.apk
           ls -lh /tmp/patched-aligned.apk
 
       - name: Sign
