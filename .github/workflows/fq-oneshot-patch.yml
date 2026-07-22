@@ -125,10 +125,10 @@ jobs:
                       usize = e['usize']
                   else:
                       # Decompress to STORED
-                      crc = zlib.crc32(compressed) & 0xffffffff
-                      ctype = 0
                       compressed = zlib.decompress(compressed, -zlib.MAX_WBITS)
                       assert len(compressed) == e['usize']
+                      crc = zlib.crc32(compressed) & 0xffffffff  # CRC of UNCOMPRESSED data
+                      ctype = 0
                       csize = e['usize']
                       usize = e['usize']
               else:
