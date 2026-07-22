@@ -75,7 +75,7 @@ jobs:
           lh_elen = struct.unpack_from('<H', data, lhoff+28)[0]
           doff = lhoff + 30 + lh_nlen + lh_elen
           assert method == 8, f"Expected deflated, got {method}"
-          assert struct.unpack_from('<I', data, doff-4)[0] == 0, "extra should be 0"
+          # NOTE: no assert on extra field here — lh_elen may be 0, making doff-4 point into the filename, not extra
 
           raw = bytearray(zlib.decompress(data[doff:doff+old_csize], -zlib.MAX_WBITS))
           assert len(raw) == old_usize
