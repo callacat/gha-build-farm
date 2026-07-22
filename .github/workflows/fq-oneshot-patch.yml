@@ -186,6 +186,11 @@ jobs:
 
           PYEOF
 
+      - name: Zipalign (4-byte align for resources.arsc on Android R+)
+        run: |
+          zipalign -v -p 4 /tmp/patched-unsigned.apk /tmp/patched-aligned.apk
+          ls -lh /tmp/patched-aligned.apk
+
       - name: Sign
         run: |
           keytool -genkey -v -keystore /tmp/debug.keystore \
@@ -194,29 +199,29 @@ jobs:
           jarsigner -keystore /tmp/debug.keystore \
             -storepass android -keypass android \
             -sigalg SHA256withRSA -digestalg SHA-256 \
-            /tmp/patched-unsigned.apk androiddebugkey 2>&1 | tail -5
-          ls -lh /tmp/patched-unsigned.apk
+            /tmp/patched-aligned.apk androiddebugkey 2>&1 | tail -5
+          ls -lh /tmp/patched-aligned.apk
 
       - name: Verify
         run: |
-          jarsigner -verify /tmp/patched-unsigned.apk 2>&1 | head -5
-          unzip -l /tmp/patched-unsigned.apk 2>/dev/null | grep classes27.dex | head -3
-          if strings /tmp/patched-unsigned.apk | grep -q 'oneseeker.top'; then
+          jarsigner -verify /tmp/patched-aligned.apk 2>&1 | head -5
+          unzip -l /tmp/patched-aligned.apk 2>/dev/null | grep classes27.dex | head -3
+          if strings /tmp/patched-aligned.apk | grep -q 'oneseeker.top'; then
             echo "oneseeker.top FOUND! PATCH FAILED"
             exit 1
           fi
-          ls -lh /tmp/patched-unsigned.apk
+          ls -lh /tmp/patched-aligned.apk
           echo "✓ All checks passed"
 
       - name: Upload to Release
         run: |
           TAG="${{ inputs.output-tag }}"
-          gh release create "$TAG" /tmp/patched-unsigned.apk \
+          gh release create "$TAG" /tmp/patched-aligned.apk \
             -R ${{ github.repository }} \
             --title "Fanqie patched ${{ inputs.output-tag }}" \
             --notes "Patch: cleared oneseeker.top in com/iD.smali" \
             --generate-notes 2>/dev/null || \
-          gh release upload "$TAG" /tmp/patched-unsigned.apk \
+          gh release upload "$TAG" /tmp/patched-aligned.apk \
             -R ${{ github.repository }} --clobber
         env:
           GH_TOKEN: ${{ github.token }}
