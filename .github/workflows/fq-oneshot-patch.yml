@@ -119,10 +119,12 @@ jobs:
                   # Must be STORED (uncompressed) and 4-byte aligned for Android R+
                   # If originally compressed, decompress first
                   if e['ctype'] == 0:
+                      crc = e['crc']
                       ctype = 0
                       csize = e['usize']
                   else:
                       # Decompress to STORED
+                      crc = zlib.crc32(compressed) & 0xffffffff
                       ctype = 0
                       compressed = zlib.decompress(compressed, -zlib.MAX_WBITS)
                       assert len(compressed) == e['usize']
