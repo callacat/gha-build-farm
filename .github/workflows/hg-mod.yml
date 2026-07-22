@@ -386,6 +386,10 @@ jobs:
       - name: Apply update dialog patches
         run: python3 .github/scripts/hg-update-patch.py /tmp/apktool_out /tmp/${{ inputs.app_id }}.apk
 
+      - name: Apply fanqie-specific update patches (app_id=fq)
+        if: ${{ inputs.app_id == 'fq' }}
+        run: python3 .github/scripts/fq-update-patch.py /tmp/apktool_out
+
       - name: 🧊 NOP 鹿属 dialog native entry point (C4409.m23296)
         run: python3 .github/scripts/hg-nop-dialog-native.py /tmp/apktool_out
 
