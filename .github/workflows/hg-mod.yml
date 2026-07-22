@@ -428,6 +428,10 @@ jobs:
           sudo apt-get install -y advancecomp -qq 2>/dev/null
           python3 .github/scripts/hg-shrink-apk.py /tmp/${{ inputs.app_id }}-unsigned.apk
 
+      - name: 🔧 Fix DEX checksums (Tinker integrity verification) - AFTER recompression
+        run: |
+          python3 .github/scripts/fix-dex-checksums.py /tmp/${{ inputs.app_id }}-unsigned.apk
+
       - name: Sign APK (v2/v3 zipalign + apksigner)
         run: |
           SDK=/usr/local/lib/android/sdk; [ -d "$SDK" ] || SDK=$ANDROID_HOME
