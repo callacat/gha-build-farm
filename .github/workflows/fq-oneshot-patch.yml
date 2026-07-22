@@ -32,118 +32,139 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-      - name: Patch oneseeker.top in DEX (binary replace) + re-zip + sign
+      - name: Patch oneseeker.top + rebuild APK (manual ZIP for Python 3.10+ compat)
         run: |
           python3 << 'PYEOF'
-          import struct, zlib, os, subprocess
+          import struct, zlib, os
 
           apk = '/tmp/modded.apk'
           out = '/tmp/patched-unsigned.apk'
+          DEX_NAME = 'classes27.dex'
 
           with open(apk, 'rb') as f:
-              data = bytearray(f.read())
+              data = f.read()
 
-          # ---- Find classes27.dex via central directory ----
+          # ---- Parse central directory ----
           eocd = len(data) - 22
           while eocd > 0 and data[eocd:eocd+4] != b'PK\x05\x06':
               eocd -= 1
-          assert eocd > 0, "EOCD not found"
-
           coff = struct.unpack_from('<I', data, eocd+16)[0]
           csz = struct.unpack_from('<I', data, eocd+12)[0]
-
+          entries = []
           pos = coff
-          dex27_central = None
           while pos < coff + csz:
-              if data[pos:pos+4] != b'PK\x01\x02':
-                  break
+              if data[pos:pos+4] != b'PK\x01\x02': break
               nlen = struct.unpack_from('<H', data, pos+28)[0]
-              name = data[pos+46:pos+46+nlen].decode()
-              if name == 'classes27.dex':
-                  dex27_central = pos
-                  lhoff = struct.unpack_from('<I', data, pos+42)[0]
-                  old_crc = struct.unpack_from('<I', data, pos+16)[0]
-                  old_csize = struct.unpack_from('<I', data, pos+20)[0]
-                  old_usize = struct.unpack_from('<I', data, pos+24)[0]
-                  break
-              pos += 46 + nlen + struct.unpack_from('<H', data, pos+30)[0] + struct.unpack_from('<H', data, pos+32)[0]
-          assert dex27_central is not None, "classes27.dex not found"
+              elen = struct.unpack_from('<H', data, pos+30)[0]
+              clen = struct.unpack_from('<H', data, pos+32)[0]
+              entries.append({
+                  'name': data[pos+46:pos+46+nlen].decode('utf-8', errors='replace'),
+                  'lhoff': struct.unpack_from('<I', data, pos+42)[0],
+                  'crc': struct.unpack_from('<I', data, pos+16)[0],
+                  'csize': struct.unpack_from('<I', data, pos+20)[0],
+                  'usize': struct.unpack_from('<I', data, pos+24)[0],
+                  'ctype': struct.unpack_from('<H', data, pos+10)[0],
+              })
+              pos += 46 + nlen + elen + clen
 
-          # ---- Parse local header, decompress DEX ----
-          method = struct.unpack_from('<H', data, lhoff+8)[0]
-          lh_nlen = struct.unpack_from('<H', data, lhoff+26)[0]
-          lh_elen = struct.unpack_from('<H', data, lhoff+28)[0]
-          doff = lhoff + 30 + lh_nlen + lh_elen
-          assert method == 8, f"Expected deflated, got {method}"
+          print(f"Found {len(entries)} entries")
 
-          raw = bytearray(zlib.decompress(data[doff:doff+old_csize], -zlib.MAX_WBITS))
-          assert len(raw) == old_usize
+          # ---- Browse and patching DEX classes27 ----
+          dex_entry = next(e for e in entries if e['name'] == DEX_NAME)
+          lh = dex_entry['lhoff']
+          lh_nlen = struct.unpack_from('<H', data, lh+26)[0]
+          lh_elen = struct.unpack_from('<H', data, lh+28)[0]
+          dex_start = lh + 30 + lh_nlen + lh_elen
+          dex_data = data[dex_start:dex_start+dex_entry['csize']]
 
-          # ---- Patch "oneseeker.top" -> "" ----
+          raw = bytearray(zlib.decompress(dex_data, -zlib.MAX_WBITS))
+          assert len(raw) == dex_entry['usize']
           idx = raw.find(b'oneseeker.top')
           assert idx != -1, "oneseeker.top not found"
-          assert raw[idx-1] == 13, f"Expected length byte 13, got {raw[idx-1]}"
+          assert raw[idx-1] == 13
           raw[idx-1] = 0
-          print(f"✓ Patched oneseeker.top len byte 13→0 at DEX offset {idx-1}")
+          print(f"✓ Patched oneseeker.top at DEX offset {idx-1}")
 
-          # ---- Re-compress ----
-          new_comp = zlib.compress(bytes(raw))[2:-4]
+          new_dex = zlib.compress(bytes(raw))[2:-4]
           new_crc = zlib.crc32(bytes(raw)) & 0xffffffff
-          new_size = len(new_comp)
-          diff = new_size - old_csize
-          print(f"  Compressed: {old_csize} → {new_size} ({diff:+d})")
+          new_csize = len(new_dex)
+          new_usize = len(raw)
 
-          # ---- In-place replace ----
-          if diff != 0:
-              tail = data[doff+old_csize:]
-              new_data = bytearray(len(data) + diff)
-              new_data[:doff] = data[:doff]
-              new_data[doff:doff+new_size] = new_comp
-              new_data[doff+new_size:] = tail
-              data = new_data
-          else:
-              data[doff:doff+new_size] = new_comp
+          # ---- Rebuild ZIP entries raw ----
+          SIG_ENDS = ('.RSA', '.SF', '.MF', '.DSA', '.EC')
+          new_central = bytearray()
+          new_data_block = bytearray()
+          new_count = 0
 
-          # ---- Update local header CRC + size ----
-          struct.pack_into('<I', data, lhoff+14, new_crc)
-          struct.pack_into('<I', data, lhoff+18, new_size)
+          for e in entries:
+              fn = e['name']
+              if fn.startswith('META-INF/') and any(fn.endswith(x) for x in SIG_ENDS):
+                  continue
 
-          # ---- Update central dir CRC + size ----
-          struct.pack_into('<I', data, dex27_central+16, new_crc)
-          struct.pack_into('<I', data, dex27_central+20, new_size)
+              lh = e['lhoff']
+              lh_nlen = struct.unpack_from('<H', data, lh+26)[0]
+              lh_elen = struct.unpack_from('<H', data, lh+28)[0]
+              dstart = lh + 30 + lh_nlen + lh_elen
+              compressed = data[dstart:dstart+e['csize']]
 
-          # ---- Update EOCD central_dir_offset ----
-          new_eocd = len(data) - 22
-          while new_eocd > 0 and data[new_eocd:new_eocd+4] != b'PK\x05\x06':
-              new_eocd -= 1
+              if fn == DEX_NAME:
+                  compressed = new_dex
+                  crc = new_crc
+                  usize = new_usize
+                  csize = new_csize
+                  ctype = 8
+              else:
+                  crc = e['crc']
+                  usize = e['usize']
+                  csize = e['csize']
+                  ctype = e['ctype']
 
-          expected = coff + diff
-          for ci in range(max(0, expected-500), min(len(data), expected+500)):
-              if data[ci:ci+4] == b'PK\x01\x02':
-                  test_lh = struct.unpack_from('<I', data, ci+42)[0]
-                  if 0 < test_lh < 50000000:
-                      struct.pack_into('<I', data, new_eocd+16, ci)
-                      struct.pack_into('<I', data, new_eocd+12, new_eocd-ci)
-                      print(f"  Central dir: off={ci}, sz={new_eocd-ci}")
-                      break
+              loff = len(new_data_block)
+              fnb = fn.encode('utf-8')
+
+              lf = bytearray(30 + len(fnb))
+              struct.pack_into('<I', lf, 0, 0x04034b50)
+              struct.pack_into('<H', lf, 4, 20); struct.pack_into('<H', lf, 6, 0)
+              struct.pack_into('<H', lf, 8, ctype); struct.pack_into('<H', lf, 10, 0)
+              struct.pack_into('<H', lf, 12, 0); struct.pack_into('<I', lf, 14, crc)
+              struct.pack_into('<I', lf, 18, csize); struct.pack_into('<I', lf, 22, usize)
+              struct.pack_into('<H', lf, 26, len(fnb)); struct.pack_into('<H', lf, 28, 0)
+              lf[30:] = fnb
+
+              ce = bytearray(46 + len(fnb))
+              struct.pack_into('<I', ce, 0, 0x02014b50)
+              struct.pack_into('<H', ce, 4, 20); struct.pack_into('<H', ce, 6, 20)
+              struct.pack_into('<H', ce, 8, 0); struct.pack_into('<H', ce, 10, ctype)
+              struct.pack_into('<H', ce, 12, 0); struct.pack_into('<H', ce, 14, 0)
+              struct.pack_into('<I', ce, 16, crc); struct.pack_into('<I', ce, 20, csize)
+              struct.pack_into('<I', ce, 24, usize); struct.pack_into('<H', ce, 28, len(fnb))
+              struct.pack_into('<H', ce, 30, 0); struct.pack_into('<H', ce, 32, 0)
+              struct.pack_into('<H', ce, 34, 0); struct.pack_into('<H', ce, 36, 0)
+              struct.pack_into('<H', ce, 38, 0); struct.pack_into('<I', ce, 42, loff)
+              ce[46:] = fnb
+
+              new_data_block += lf + compressed
+              new_central += ce
+              new_count += 1
+
+          eocd = bytearray(22)
+          struct.pack_into('<I', eocd, 0, 0x06054b50)
+          struct.pack_into('<H', eocd, 4, 0); struct.pack_into('<H', eocd, 6, 0)
+          struct.pack_into('<H', eocd, 8, new_count); struct.pack_into('<H', eocd, 10, new_count)
+          struct.pack_into('<I', eocd, 12, len(new_central))
+          struct.pack_into('<I', eocd, 16, len(new_data_block))
+          struct.pack_into('<H', eocd, 20, 0)
 
           with open(out, 'wb') as f:
-              f.write(data)
+              f.write(new_data_block + new_central + eocd)
 
-          print(f"✓ APK: {len(data)/1024/1024:.1f} MB")
+          print(f"✓ APK: {len(new_data_block + new_central + eocd)/1024/1024:.1f} MB ({new_count} entries)")
 
-          # ---- Remove META-INF signatures using zip -d (much simpler than manual rebuild) ----
-          # zip -d modifies the archive in-place, properly handling compression methods
-          sig_entries = ['META-INF/BYTESIGN.RSA', 'META-INF/BYTESIGN.SF', 'META-INF/MANIFEST.MF', 'META-INF/*']
-          for entry in sig_entries:
-              subprocess.run(['zip', '-d', out, entry], capture_output=True)
-          print("✓ Removed META-INF signature entries via zip -d")
-
-          # ---- Verify ----
-          if b'oneseeker.top' not in open(out, 'rb').read():
-              print("✓ oneseeker.top byte sequence removed from APK")
+          if b'oneseeker.top' not in (new_data_block + new_central + eocd):
+              print("✓ oneseeker.top removed")
           else:
               print("  WARNING: oneseeker.top still present")
+              exit(1)
 
           PYEOF
 
@@ -154,7 +175,7 @@ jobs:
             -keyalg RSA -validity 365 -dname 'CN=Debug,O=Android,C=US'
           jarsigner -keystore /tmp/debug.keystore \
             -storepass android -keypass android \
-            -sigalg SHA1withRSA -digestalg SHA1 \
+            -sigalg SHA256withRSA -digestalg SHA-256 \
             /tmp/patched-unsigned.apk androiddebugkey 2>&1 | tail -5
           ls -lh /tmp/patched-unsigned.apk
 
