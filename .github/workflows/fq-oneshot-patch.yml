@@ -85,6 +85,16 @@ jobs:
           raw[idx-1] = 0
           print(f"✓ Patched oneseeker.top at DEX offset {idx-1}")
 
+          # ---- Update DEX header checksums (SHA1 + Adler32) for Tinker/Mirage verification ----
+          import hashlib, zlib as zlib2
+          # SHA1 of everything after offset 32
+          sha1 = hashlib.sha1(raw[32:]).digest()
+          raw[12:32] = sha1
+          # Adler32 of everything after offset 12
+          adler = zlib2.adler32(raw[12:]) & 0xffffffff
+          struct.pack_into('<I', raw, 8, adler)
+          print(f"✓ Updated DEX header: SHA1 + Adler32")
+
           new_dex = zlib.compress(bytes(raw))[2:-4]
           new_crc = zlib.crc32(bytes(raw)) & 0xffffffff
           new_csize = len(new_dex)
