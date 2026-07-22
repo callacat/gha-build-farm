@@ -118,7 +118,7 @@ jobs:
               elif fn in STORED_NAMES:
                   # Must be STORED (uncompressed) and 4-byte aligned
                   ctype = 0
-                  csize = usize
+                  csize = e['usize']
                   # Ensure original was already STORED
                   assert e['ctype'] == 0, f"{fn} was compressed, cannot realign"
               else:
