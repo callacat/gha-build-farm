@@ -26,7 +26,7 @@ if manifest.exists():
         print(f"  ✅ Manifest: added android:enabled=\"false\" to LuckyDogLowUpdateDialog")
         TOTAL += 1
     else:
-        print(f"  (already disabled or already modified)
+        print(f"  (already disabled or already modified)")
 
 # 2. smali_classes10/uo4/k0.smali - NOP GeckoClient.checkUpdateMulti()
 print("\n=== Phase 2: GeckoClient.checkUpdateMulti() NOP ===")
