@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""APK 减容 — advzip 逐条重压缩 ZIP 条目。
-在 rebuild 后、zipalign 前运行，不破坏 ZIP 结构。
-使用 -4 级压缩 + 3000 次迭代以获得最佳压比。
+"""APK 减容 — 用 zipalign -z（Zopfli 算法，SDK 自带，比 advzip 快得多）。
+在 rebuild 后、签名前运行。
+zipalign -z 4 = Zopfli 重压缩 + 4字节对齐，一步到位。
 """
 import sys, subprocess, shutil
 from pathlib import Path
@@ -12,23 +12,25 @@ if not APK or not APK.exists():
     sys.exit(0)
 
 before = APK.stat().st_size
-tmp = APK.with_suffix('.tmp.apk')
+out = APK.with_suffix('.aligned.apk')
 
 try:
-    shutil.copy2(APK, tmp)
-    # -4 = max compression, -i 3000 = iterative refinement for smaller output
-    r = subprocess.run(['advzip', '-z', '-4', '-i', '3000', str(tmp)], capture_output=True, timeout=1800)
-    after = tmp.stat().st_size
-    if after < before:
-        shutil.move(tmp, APK)
+    # Find zipalign in SDK
+    sdk = "/usr/local/lib/android/sdk"
+    bt = subprocess.run(['find', sdk, '-name', 'zipalign', '-type', 'f'], capture_output=True, text=True, timeout=5)
+    zipalign = bt.stdout.strip().split('\n')[0]
+    if not zipalign:
+        print("  ⚠ zipalign not found")
+        sys.exit(0)
+
+    r = subprocess.run([zipalign, '-z', '4', str(APK), str(out)], capture_output=True, timeout=180)
+    if out.exists():
+        after = out.stat().st_size
         saved = before - after
         pct = (before - after) * 100 // before
         print(f"  🗜️ {before//1024//1024}MB → {after//1024//1024}MB (-{saved//1024//1024}MB, {pct}%)")
+        shutil.move(out, APK)
     else:
-        tmp.unlink()
-        print("  ⚠ 无压缩收益，保留原文件")
-except FileNotFoundError:
-    print("  ⚠ advzip 未安装，跳过")
+        print(f"  ⚠ zipalign failed")
 except Exception as e:
     print(f"  ⚠ 失败: {e}")
-    if tmp.exists(): tmp.unlink()

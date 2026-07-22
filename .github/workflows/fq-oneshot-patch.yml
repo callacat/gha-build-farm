@@ -75,7 +75,6 @@ jobs:
           lh_elen = struct.unpack_from('<H', data, lhoff+28)[0]
           doff = lhoff + 30 + lh_nlen + lh_elen
           assert method == 8, f"Expected deflated, got {method}"
-          # NOTE: no assert on extra field here — lh_elen may be 0, making doff-4 point into the filename, not extra
 
           raw = bytearray(zlib.decompress(data[doff:doff+old_csize], -zlib.MAX_WBITS))
           assert len(raw) == old_usize
@@ -83,8 +82,6 @@ jobs:
           # ---- Patch "oneseeker.top" -> "" ----
           idx = raw.find(b'oneseeker.top')
           assert idx != -1, "oneseeker.top not found"
-          # In DEX string_data_item: uleb128_length followed by MUTF-8 data
-          # For len=13, it's a single byte (0x0d) -> set to 0
           assert raw[idx-1] == 13, f"Expected length byte 13, got {raw[idx-1]}"
           raw[idx-1] = 0
           print(f"✓ Patched oneseeker.top len byte 13→0 at DEX offset {idx-1}")
@@ -116,17 +113,15 @@ jobs:
           struct.pack_into('<I', data, dex27_central+20, new_size)
 
           # ---- Update EOCD central_dir_offset ----
-          # Central dir follows all data; it shifted by `diff` bytes
           new_eocd = len(data) - 22
           while new_eocd > 0 and data[new_eocd:new_eocd+4] != b'PK\x05\x06':
               new_eocd -= 1
 
-          # Find central dir start: scan near expected position
           expected = coff + diff
           for ci in range(max(0, expected-500), min(len(data), expected+500)):
               if data[ci:ci+4] == b'PK\x01\x02':
                   test_lh = struct.unpack_from('<I', data, ci+42)[0]
-                  if 0 < test_lh < 50000000:  # plausible
+                  if 0 < test_lh < 50000000:
                       struct.pack_into('<I', data, new_eocd+16, ci)
                       struct.pack_into('<I', data, new_eocd+12, new_eocd-ci)
                       print(f"  Central dir: off={ci}, sz={new_eocd-ci}")
@@ -135,119 +130,20 @@ jobs:
           with open(out, 'wb') as f:
               f.write(data)
 
-          # ---- Remove META-INF signature entries (needed before jarsigner) ----
-          file_size = os.path.getsize(out)
-          print(f"✓ APK: {file_size/1024/1024:.1f} MB")
+          print(f"✓ APK: {len(data)/1024/1024:.1f} MB")
 
-          # Use python to remove META-INF sig entries by reading/writing central dir
-          # Simply: null out their names so they won't conflict
-          with open(out, 'r+b') as f:
-              apk2 = bytearray(f.read())
-              e2 = len(apk2) - 22
-              while e2 > 0 and apk2[e2:e2+4] != b'PK\x05\x06':
-                  e2 -= 1
-              co2 = struct.unpack_from('<I', apk2, e2+16)[0]
-              cs2 = struct.unpack_from('<I', apk2, e2+12)[0]
-              p2 = co2
-              sig_names = set()
-              while p2 < co2 + cs2:
-                  if apk2[p2:p2+4] != b'PK\x01\x02': break
-                  n2 = struct.unpack_from('<H', apk2, p2+28)[0]
-                  nm = apk2[p2+46:p2+46+n2].decode()
-                  if nm.startswith('META-INF/') and any(nm.endswith(x) for x in ['.RSA','.SF','.MF','.DSA','.EC']):
-                      sig_names.add(nm)
-                  p2 += 46 + n2 + struct.unpack_from('<H', apk2, p2+30)[0] + struct.unpack_from('<H', apk2, p2+32)[0]
-
-              if sig_names:
-                  print(f"Removing {len(sig_names)} sig entries: {sorted(sig_names)}")
-                  # Re-read data, rebuild without sig entries
-                  f.seek(0)
-                  data2 = bytearray(f.read())
-                  # Parse all entries, exclude sigs
-                  entries2 = []
-                  p2 = struct.unpack_from('<I', data2, e2+16)[0]
-                  cs2 = struct.unpack_from('<I', data2, e2+12)[0]
-                  while p2 < co2 + cs2:
-                      if data2[p2:p2+4] != b'PK\x01\x02': break
-                      n2 = struct.unpack_from('<H', data2, p2+28)[0]
-                      e2c = struct.unpack_from('<H', data2, p2+30)[0]
-                      c2c = struct.unpack_from('<H', data2, p2+32)[0]
-                      nm = data2[p2+46:p2+46+n2].decode()
-                      lh2 = struct.unpack_from('<I', data2, p2+42)[0]
-                      m2 = struct.unpack_from('<H', data2, lh2+8)[0]
-                      cr2 = struct.unpack_from('<I', data2, lh2+14)[0]
-                      cs2 = struct.unpack_from('<I', data2, lh2+18)[0]
-                      us2 = struct.unpack_from('<I', data2, lh2+22)[0]
-                      ln2 = struct.unpack_from('<H', data2, lh2+26)[0]
-                      le2 = struct.unpack_from('<H', data2, lh2+28)[0]
-                      dd2 = lh2 + 30 + ln2 + le2
-                      entries2.append((nm, m2, cr2, cs2, us2, data2[dd2:dd2+cs2], lh2))
-                      p2 += 46 + n2 + e2c + c2c
-
-                  entries2 = [e for e in entries2 if e[0] not in sig_names]
-                  print(f"Rebuilding APK with {len(entries2)} entries...")
-
-                  # Rebuild
-                  new_apk = bytearray()
-                  offsets2 = {}
-                  for nm, m2, cr2, cs2, us2, compd, lh2 in entries2:
-                      fn = nm.encode('utf-8')
-                      h = struct.pack('<I', 0x04034b50)
-                      h += struct.pack('<H', 20)
-                      h += struct.pack('<H', 0)
-                      h += struct.pack('<H', m2)
-                      h += struct.pack('<H', 0)
-                      h += struct.pack('<H', 0)
-                      h += struct.pack('<I', cr2)
-                      h += struct.pack('<I', len(compd))
-                      h += struct.pack('<I', us2)
-                      h += struct.pack('<H', len(fn))
-                      h += struct.pack('<H', 0)
-                      h += fn
-                      offsets2[nm] = len(new_apk)
-                      new_apk += h
-                      new_apk += compd
-
-                  cs3 = len(new_apk)
-                  for nm, m2, cr2, cs2, us2, compd, lh2 in entries2:
-                      fn = nm.encode('utf-8')
-                      c = struct.pack('<I', 0x02014b50)
-                      c += struct.pack('<H', 20); c += struct.pack('<H', 20)
-                      c += struct.pack('<H', 0); c += struct.pack('<H', m2)
-                      c += struct.pack('<H', 0); c += struct.pack('<H', 0)
-                      c += struct.pack('<I', cr2)
-                      c += struct.pack('<I', len(compd))
-                      c += struct.pack('<I', us2)
-                      c += struct.pack('<H', len(fn))
-                      c += struct.pack('<H', 0); c += struct.pack('<H', 0)
-                      c += struct.pack('<H', 0); c += struct.pack('<H', 0)
-                      c += struct.pack('<I', 0); c += struct.pack('<I', offsets2[nm])
-                      c += fn
-                      new_apk += c
-
-                  ce3 = len(new_apk)
-                  e3 = struct.pack('<I', 0x06054b50)
-                  e3 += struct.pack('<H', 0); e3 += struct.pack('<H', 0)
-                  e3 += struct.pack('<H', len(entries2))
-                  e3 += struct.pack('<H', len(entries2))
-                  e3 += struct.pack('<I', ce3 - cs3)
-                  e3 += struct.pack('<I', cs3)
-                  e3 += struct.pack('<H', 0)
-                  new_apk += e3
-
-                  f.seek(0)
-                  f.truncate()
-                  f.write(new_apk)
-                  print(f"✓ Rebuilt: {len(new_apk)/1024/1024:.1f} MB")
-              else:
-                  print("No META-INF sig entries found")
+          # ---- Remove META-INF signatures using zip -d (much simpler than manual rebuild) ----
+          # zip -d modifies the archive in-place, properly handling compression methods
+          sig_entries = ['META-INF/BYTESIGN.RSA', 'META-INF/BYTESIGN.SF', 'META-INF/MANIFEST.MF', 'META-INF/*']
+          for entry in sig_entries:
+              subprocess.run(['zip', '-d', out, entry], capture_output=True)
+          print("✓ Removed META-INF signature entries via zip -d")
 
           # ---- Verify ----
-          if b'oneseeker.top' not in data:
+          if b'oneseeker.top' not in open(out, 'rb').read():
               print("✓ oneseeker.top byte sequence removed from APK")
           else:
-              idx2 = data.find(b'oneseeker.top')
-              print(f"  Byte sequence remains (prefix={data[idx2-1]}, OK if 0)")
+              print("  WARNING: oneseeker.top still present")
 
           PYEOF
 
@@ -260,29 +156,28 @@ jobs:
             -storepass android -keypass android \
             -sigalg SHA1withRSA -digestalg SHA1 \
             /tmp/patched-unsigned.apk androiddebugkey 2>&1 | tail -5
-          cp /tmp/patched-unsigned.apk /tmp/patched-signed.apk
-          ls -lh /tmp/patched-signed.apk
+          ls -lh /tmp/patched-unsigned.apk
 
       - name: Verify
         run: |
-          jarsigner -verify /tmp/patched-signed.apk 2>&1 | head -5
-          unzip -l /tmp/patched-signed.apk 2>/dev/null | grep classes27.dex | head -3
-          if strings /tmp/patched-signed.apk | grep -q 'oneseeker.top'; then
+          jarsigner -verify /tmp/patched-unsigned.apk 2>&1 | head -5
+          unzip -l /tmp/patched-unsigned.apk 2>/dev/null | grep classes27.dex | head -3
+          if strings /tmp/patched-unsigned.apk | grep -q 'oneseeker.top'; then
             echo "oneseeker.top FOUND! PATCH FAILED"
             exit 1
           fi
-          ls -lh /tmp/patched-signed.apk
+          ls -lh /tmp/patched-unsigned.apk
           echo "✓ All checks passed"
 
       - name: Upload to Release
         run: |
           TAG="${{ inputs.output-tag }}"
-          gh release create "$TAG" /tmp/patched-signed.apk \
+          gh release create "$TAG" /tmp/patched-unsigned.apk \
             -R ${{ github.repository }} \
             --title "Fanqie patched ${{ inputs.output-tag }}" \
             --notes "Patch: cleared oneseeker.top in com/iD.smali" \
             --generate-notes 2>/dev/null || \
-          gh release upload "$TAG" /tmp/patched-signed.apk \
+          gh release upload "$TAG" /tmp/patched-unsigned.apk \
             -R ${{ github.repository }} --clobber
         env:
           GH_TOKEN: ${{ github.token }}
