@@ -25,9 +25,9 @@ jobs:
       - name: Download modded APK
         run: |
           gh release download "${{ inputs.modded-tag }}" \
-            -R ${{ github.repository }} -p 'app.apk' \
+            -R ${{ github.repository }} -p 'fanqie_mod_*.apk' \
             --dir /tmp
-          mv /tmp/app.apk /tmp/modded.apk
+          mv /tmp/fanqie_mod_*.apk /tmp/modded.apk
           ls -lh /tmp/modded.apk
         env:
           GH_TOKEN: ${{ github.token }}
