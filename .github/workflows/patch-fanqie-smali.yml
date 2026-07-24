@@ -132,15 +132,24 @@ jobs:
 
       - name: Fix resource directories (remove problematic res arm)
         run: |
-          # Remove res arm directory which breaks apktool rebuild
-          echo "=== Before fix ==="
-          find fanqie_smali -type d -name "res *" -o -name "res arm" | sort
+          echo "=== START Fix resource directories ==="
+          echo "Current dir: $(pwd)"
+          echo "Listing fanqie_smali contents:"
+          ls -la fanqie_smali/
 
-          # Remove directories matching "res *" pattern (including "res arm")
+          echo "=== Searching for res* directories ==="
+          find fanqie_smali -type d -name "res *" 2>/dev/null | sort || echo "No res* dirs found"
+
+          echo "=== Removing res* directories ==="
           find fanqie_smali -type d -name "res *" -exec echo "Removing: {}" \; -exec rm -rf {} \;
 
-          echo "=== After fix ==="
-          find fanqie_smali -type d -name "res *" -o -name "res arm" | sort || echo "No res* directories found"
+          echo "=== Verifying removal ==="
+          find fanqie_smali -type d -name "res *" 2>/dev/null | sort || echo "No res* dirs found - SUCCESS"
+
+          echo "=== Listing fanqie_smali after fix ==="
+          ls -la fanqie_smali/
+
+          echo "=== END Fix resource directories ==="
 
       - name: Rebuild APK with apktool
         run: |
