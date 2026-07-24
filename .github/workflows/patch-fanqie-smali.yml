@@ -130,6 +130,16 @@ jobs:
             echo "⚠️ IAppUpdateConfig$$Impl.smali not found"
           fi
 
+      - name: Fix resource directories (remove problematic res arm)
+        run: |
+          # Remove res arm directory which breaks apktool rebuild
+          if [ -d "fanqie_smali/res arm" ]; then
+            echo "Removing problematic 'res arm' directory"
+            rm -rf "fanqie_smali/res arm"
+          fi
+          # Also check for any other non-standard res directories
+          find fanqie_smali -maxdepth 1 -type d -name "res *" -exec echo "Found: {}" \; -exec rm -rf {} \;
+
       - name: Rebuild APK with apktool
         run: |
           apktool b fanqie_smali -o fanqie_patched_unsigned.apk
