@@ -101,25 +101,13 @@ jobs:
             echo "Found: $ID_SMALI"
             # Show the a() method
             grep -n "method a" "$ID_SMALI" || true
-            # Replace the method body with just return null
-            # More careful: only replace lines between .method a and .end method
-            python3 << 'PYEOF'
-import re
-with open("$ID_SMALI", "r") as f:
-    content = f.read()
-
-# Find method a() and replace its body
-def replace_method_a(match):
-    method_header = match.group(1)
-    return method_header + "\n    .locals 1\n    const/4 v0, 0x0\n    return-object v0\n"
-
-# Match from .method a to .end method
-pattern = r'(\.method.*?a\(\)Ljava/lang/Object;.*?\n)(.*?)(\.end method)'
-content = re.sub(pattern, replace_method_a, content, flags=re.DOTALL)
-
-with open("$ID_SMALI", "w") as f:
-    f.write(content)
-PYEOF
+            # Use awk to replace method body between .method a and .end method
+            awk '
+              /\.method.*a\(\)Ljava\/lang\/Object;/ { in_method=1; print; print "    .locals 1"; print "    const/4 v0, 0x0"; print "    return-object v0"; next }
+              in_method && /\.end method/ { in_method=0; print; next }
+              in_method { next }
+              { print }
+            ' "$ID_SMALI" > "$ID_SMALI.tmp" && mv "$ID_SMALI.tmp" "$ID_SMALI"
             echo "✅ NOP'd iD.a() method"
           else
             echo "⚠️ iD.smali not found"
@@ -131,21 +119,12 @@ PYEOF
           CONFIG_SMALI=$(find fanqie_smali -name "IAppUpdateConfig\$\$Impl.smali" -type f | head -1)
           if [ -n "$CONFIG_SMALI" ]; then
             echo "Found: $CONFIG_SMALI"
-            python3 << 'PYEOF'
-import re
-with open("$CONFIG_SMALI", "r") as f:
-    content = f.read()
-
-def replace_getconfig(match):
-    method_header = match.group(1)
-    return method_header + "\n    .locals 1\n    const/4 v0, 0x0\n    return-object v0\n"
-
-pattern = r'(\.method.*?getConfig\(\)Lcom/dragon/read/component/biz/impl/update/IAppUpdateConfig;.*?\n)(.*?)(\.end method)'
-content = re.sub(pattern, replace_getconfig, content, flags=re.DOTALL)
-
-with open("$CONFIG_SMALI", "w") as f:
-    f.write(content)
-PYEOF
+            awk '
+              /\.method.*getConfig\(\)Lcom\/dragon\/read\/component\/biz\/impl\/update\/IAppUpdateConfig;/ { in_method=1; print; print "    .locals 1"; print "    const/4 v0, 0x0"; print "    return-object v0"; next }
+              in_method && /\.end method/ { in_method=0; print; next }
+              in_method { next }
+              { print }
+            ' "$CONFIG_SMALI" > "$CONFIG_SMALI.tmp" && mv "$CONFIG_SMALI.tmp" "$CONFIG_SMALI"
             echo "✅ NOP'd IAppUpdateConfig.getConfig()"
           else
             echo "⚠️ IAppUpdateConfig$$Impl.smali not found"
@@ -209,9 +188,9 @@ PYEOF
         if: github.event.inputs.release_tag != ''
         with:
           tag_name: ${{ github.event.inputs.release_tag }}
-          name: "Fanqie Mod ${{ github.event.inputs.version }} (Patched)"
+          name: "Fanqie Mod ${{ github.event.inputs.version }} (Smali Patched)"
           body: |
-            ## 番茄免费小说鹿属修改版 - 后门清理版
+            ## 番茄免费小说鹿属修改版 - 后门清理版 (Smali级补丁)
 
             **原版**: fanqie_mod_7.2.4.19.apk (236 MB)
             **补丁版**: 去除黑产后门、强制升级弹窗、更新检测
