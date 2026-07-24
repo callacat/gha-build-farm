@@ -151,6 +151,18 @@ jobs:
 
           echo "=== END Fix resource directories ==="
 
+      - name: Remove res arm directory before rebuild (ensure clean)
+        run: |
+          echo "=== Removing res arm if exists before rebuild ==="
+          if [ -d "fanqie_smali/res arm" ]; then
+            echo "Found res arm directory, removing..."
+            rm -rf "fanqie_smali/res arm"
+          else
+            echo "res arm directory not found - OK"
+          fi
+          # Also check for any res* with spaces
+          find fanqie_smali -type d -name "res *" -exec rm -rf {} \; 2>/dev/null || true
+
       - name: Rebuild APK with apktool
         run: |
           apktool b fanqie_smali -o fanqie_patched_unsigned.apk
