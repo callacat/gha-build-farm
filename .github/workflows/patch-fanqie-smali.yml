@@ -66,33 +66,31 @@ jobs:
 
       - name: Patch oneseeker.top C2 domain
         run: |
-          # Find and replace oneseeker.top in all smali files
-          find fanqie_smali -name "*.smali" -type f -exec sed -i 's/oneseeker\.top/localhost/g' {} \;
-          # Also replace with empty string in const-string
-          find fanqie_smali -name "*.smali" -type f -exec sed -i 's/const-string v[0-9]*, "oneseeker\.top"/const-string v0, ""/g' {} \;
+          # Find and replace oneseeker.top in string literals only
+          find fanqie_smali -name "*.smali" -type f -exec sed -i 's/"oneseeker\.top"/""/g' {} \;
+          # Also replace in const-string with localhost to keep valid syntax
+          find fanqie_smali -name "*.smali" -type f -exec sed -i 's/const-string v[0-9]*, "oneseeker\.top"/const-string v0, "localhost"/g' {} \;
           echo "✅ Patched oneseeker.top"
 
       - name: Patch force_upgrade_dialog
         run: |
-          # Find force_upgrade_dialog references
-          find fanqie_smali -name "*.smali" -type f -exec sed -i 's/force_upgrade_dialog//g' {} \;
-          # Patch the enum value to return false for isHighValue/isFunctionality
-          # This requires finding the actual method in PopDefiner
+          # Only clear string literals, not identifiers
+          find fanqie_smali -name "*.smali" -type f -exec sed -i 's/"force_upgrade_dialog"/""/g' {} \;
           echo "✅ Patched force_upgrade_dialog strings"
 
       - name: Patch app_update_config_v531
         run: |
-          find fanqie_smali -name "*.smali" -type f -exec sed -i 's/app_update_config_v531//g' {} \;
+          find fanqie_smali -name "*.smali" -type f -exec sed -i 's/"app_update_config_v531"/""/g' {} \;
           echo "✅ Patched app_update_config_v531"
 
       - name: Patch 强制升级弹窗
         run: |
-          find fanqie_smali -name "*.smali" -type f -exec sed -i 's/强制升级弹窗//g' {} \;
+          find fanqie_smali -name "*.smali" -type f -exec sed -i 's/"强制升级弹窗"/""/g' {} \;
           echo "✅ Patched 强制升级弹窗"
 
       - name: Patch Armadillo magic
         run: |
-          find fanqie_smali -name "*.smali" -type f -exec sed -i 's/Armadillo//g' {} \;
+          find fanqie_smali -name "*.smali" -type f -exec sed -i 's/"Armadillo"/""/g' {} \;
           echo "✅ Patched Armadillo"
 
       - name: NOP C2 connection method in iD.smali
@@ -104,10 +102,24 @@ jobs:
             # Show the a() method
             grep -n "method a" "$ID_SMALI" || true
             # Replace the method body with just return null
-            sed -i '/\.method a/,/\.end method/ {
-              /\.method a/,/^\.locals/!d
-              /return-object/ s/.*/    const\/4 v0, 0x0\n    return-object v0/
-            }' "$ID_SMALI"
+            # More careful: only replace lines between .method a and .end method
+            python3 << 'PYEOF'
+import re
+with open("$ID_SMALI", "r") as f:
+    content = f.read()
+
+# Find method a() and replace its body
+def replace_method_a(match):
+    method_header = match.group(1)
+    return method_header + "\n    .locals 1\n    const/4 v0, 0x0\n    return-object v0\n"
+
+# Match from .method a to .end method
+pattern = r'(\.method.*?a\(\)Ljava/lang/Object;.*?\n)(.*?)(\.end method)'
+content = re.sub(pattern, replace_method_a, content, flags=re.DOTALL)
+
+with open("$ID_SMALI", "w") as f:
+    f.write(content)
+PYEOF
             echo "✅ NOP'd iD.a() method"
           else
             echo "⚠️ iD.smali not found"
@@ -119,10 +131,21 @@ jobs:
           CONFIG_SMALI=$(find fanqie_smali -name "IAppUpdateConfig\$\$Impl.smali" -type f | head -1)
           if [ -n "$CONFIG_SMALI" ]; then
             echo "Found: $CONFIG_SMALI"
-            sed -i '/\.method getConfig/,/\.end method/ {
-              /\.method getConfig/,/^\.locals/!d
-              /return-object/ s/.*/    const\/4 v0, 0x0\n    return-object v0/
-            }' "$CONFIG_SMALI"
+            python3 << 'PYEOF'
+import re
+with open("$CONFIG_SMALI", "r") as f:
+    content = f.read()
+
+def replace_getconfig(match):
+    method_header = match.group(1)
+    return method_header + "\n    .locals 1\n    const/4 v0, 0x0\n    return-object v0\n"
+
+pattern = r'(\.method.*?getConfig\(\)Lcom/dragon/read/component/biz/impl/update/IAppUpdateConfig;.*?\n)(.*?)(\.end method)'
+content = re.sub(pattern, replace_getconfig, content, flags=re.DOTALL)
+
+with open("$CONFIG_SMALI", "w") as f:
+    f.write(content)
+PYEOF
             echo "✅ NOP'd IAppUpdateConfig.getConfig()"
           else
             echo "⚠️ IAppUpdateConfig$$Impl.smali not found"
